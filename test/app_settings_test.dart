@@ -35,4 +35,31 @@ void main() {
 
     expect((await store.load())!.absolute.path, vault.absolute.path);
   });
+
+  test('legacy vault location migrates to the stable config file', () async {
+    final root = await Directory.systemTemp.createTemp('good_day_migration_');
+    final legacyConfig = Directory(
+      '${root.path}${Platform.pathSeparator}legacy',
+    );
+    final stableConfig = Directory(
+      '${root.path}${Platform.pathSeparator}stable',
+    );
+    final vault = Directory('${root.path}${Platform.pathSeparator}vault');
+    addTearDown(() async => root.delete(recursive: true));
+
+    final legacyStore = VaultLocationStore(legacyConfig);
+    await legacyStore.save(vault);
+
+    final stableStore = VaultLocationStore(
+      stableConfig,
+      legacyFiles: [legacyStore.file],
+    );
+    final migrated = await stableStore.load();
+
+    expect(migrated!.absolute.path, vault.absolute.path);
+    expect(await stableStore.file.exists(), isTrue);
+
+    await legacyStore.file.delete();
+    expect((await stableStore.load())!.absolute.path, vault.absolute.path);
+  });
 }

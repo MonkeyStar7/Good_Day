@@ -27,6 +27,7 @@ Future<void> main() async {
       ? await VaultRepository.createDefault()
       : VaultRepository(savedVault);
   await repository.initialize();
+  await vaultLocationStore.save(repository.vaultDirectory);
   final settingsController = await AppSettingsController.load(
     repository.vaultDirectory,
   );
