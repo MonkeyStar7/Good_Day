@@ -131,6 +131,65 @@ class VaultRepository {
     return updated;
   }
 
+  Future<GoodDayTask> updateTaskDetails(
+    GoodDayTask task, {
+    required String title,
+    required String notes,
+  }) async {
+    if (title.trim().isEmpty) {
+      throw const FormatException('任务内容不能为空');
+    }
+    final updated = task.updateDetails(title: title, notes: notes);
+    await _writeTask(updated);
+    await _syncDaily(await _readTasks(tasksDirectory), _clock());
+    return updated;
+  }
+
+  Future<GoodDayTask> addSubtask(GoodDayTask task, String title) async {
+    final normalizedTitle = title.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
+    if (normalizedTitle.isEmpty) {
+      throw const FormatException('子任务内容不能为空');
+    }
+    final now = _clock();
+    final updated = task.addSubtask(
+      GoodDaySubtask(
+        id: 'sub_${now.microsecondsSinceEpoch.toRadixString(36)}',
+        title: normalizedTitle,
+      ),
+    );
+    await _writeTask(updated);
+    await _syncDaily(await _readTasks(tasksDirectory), now);
+    return updated;
+  }
+
+  Future<GoodDayTask> updateSubtask(
+    GoodDayTask task,
+    String subtaskId, {
+    String? title,
+    bool? isCompleted,
+  }) async {
+    if (title != null && title.trim().isEmpty) {
+      throw const FormatException('子任务内容不能为空');
+    }
+    final now = _clock();
+    final updated = task.updateSubtask(
+      subtaskId,
+      title: title,
+      isCompleted: isCompleted,
+    );
+    await _writeTask(updated);
+    await _syncDaily(await _readTasks(tasksDirectory), now);
+    return updated;
+  }
+
+  Future<GoodDayTask> removeSubtask(GoodDayTask task, String subtaskId) async {
+    final now = _clock();
+    final updated = task.removeSubtask(subtaskId);
+    await _writeTask(updated);
+    await _syncDaily(await _readTasks(tasksDirectory), now);
+    return updated;
+  }
+
   Future<void> deleteTask(GoodDayTask task) async {
     final now = _clock();
     final deleted = task.markDeleted(now);
@@ -201,6 +260,12 @@ class VaultRepository {
         managed.writeln(
           '- [$checked] [$label]($relativePath) <!-- goodday:${task.id} -->',
         );
+        for (final subtask in task.subtasks) {
+          final subtaskChecked = subtask.isCompleted ? 'x' : ' ';
+          managed.writeln(
+            '  - [$subtaskChecked] ${_escapeMarkdown(subtask.title)}',
+          );
+        }
       }
     }
 

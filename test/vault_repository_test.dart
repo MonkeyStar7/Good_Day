@@ -43,6 +43,37 @@ void main() {
     expect(await dailyFile.readAsString(), contains('## 今日完成'));
   });
 
+  test('edits details and persists readable checkable subtasks', () async {
+    var task = await repository.addTask('原来的任务');
+    task = await repository.updateTaskDetails(
+      task,
+      title: '更新后的任务',
+      notes: '一行备注\n会被收成一行',
+    );
+    task = await repository.addSubtask(task, '第一个子任务');
+    final subtask = task.subtasks.single;
+    task = await repository.updateSubtask(task, subtask.id, isCompleted: true);
+
+    final taskFile = File(
+      '${repository.tasksDirectory.path}${Platform.pathSeparator}${task.id}.md',
+    );
+    final markdown = await taskFile.readAsString();
+    final fromDisk = (await repository.loadTasks()).single;
+    final daily = await File(
+      '${repository.dailyDirectory.path}${Platform.pathSeparator}2026-09-08.md',
+    ).readAsString();
+
+    expect(fromDisk.id, task.id);
+    expect(fromDisk.title, '更新后的任务');
+    expect(fromDisk.notes, '一行备注 会被收成一行');
+    expect(fromDisk.subtasks.single.title, '第一个子任务');
+    expect(fromDisk.subtasks.single.isCompleted, isTrue);
+    expect(markdown, contains('> 一行备注 会被收成一行'));
+    expect(markdown, contains('- [x] 第一个子任务'));
+    expect(daily, contains('[更新后的任务]'));
+    expect(daily, contains('  - [x] 第一个子任务'));
+  });
+
   test('unfinished tasks roll forward without changing the old Daily file', () async {
     await repository.addTask('跨天任务');
     final oldDaily = File(

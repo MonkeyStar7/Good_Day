@@ -20,13 +20,15 @@ void main() {
     );
     await _flushMicrotasks(tester);
 
-    expect(find.text('今天很轻盈'), findsOneWidget);
+    expect(find.byKey(const Key('add-task-button')), findsOneWidget);
 
+    await tester.tap(find.byKey(const Key('add-task-button')));
+    await _flushMicrotasks(tester);
     await tester.enterText(
       find.byKey(const Key('new-task-field')),
       '完成 Good Day MVP',
     );
-    await tester.tap(find.byKey(const Key('add-task-button')));
+    await tester.testTextInput.receiveAction(TextInputAction.done);
     await _flushMicrotasks(tester);
 
     expect(find.text('完成 Good Day MVP'), findsOneWidget);
@@ -42,6 +44,57 @@ void main() {
     expect(find.text('完成 Good Day MVP'), findsNothing);
     expect(repository.tasks, isEmpty);
   });
+
+  testWidgets(
+    'edits task details and shows checkable subtasks when collapsed',
+    (tester) async {
+      final repository = _MemoryRepository();
+      final task = await repository.addTask('旧任务内容');
+      await tester.pumpWidget(
+        GoodDayApp(
+          repository: repository,
+          settingsController: AppSettingsController.inMemory(),
+        ),
+      );
+      await _flushMicrotasks(tester);
+
+      await tester.tap(find.byKey(Key('task-content-${task.id}')));
+      await _flushMicrotasks(tester);
+      await tester.enterText(
+        find.byKey(Key('task-title-${task.id}')),
+        '新的任务内容',
+      );
+      await tester.enterText(find.byKey(Key('task-note-${task.id}')), '一行备注');
+      await tester.pump(const Duration(milliseconds: 700));
+      await _flushMicrotasks(tester);
+
+      await tester.tap(find.byKey(Key('add-subtask-${task.id}')));
+      await _flushMicrotasks(tester);
+      await tester.enterText(
+        find.byKey(Key('new-subtask-field-${task.id}')),
+        '第一个子任务',
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await _flushMicrotasks(tester);
+
+      final updated = repository.tasks.single;
+      expect(updated.title, '新的任务内容');
+      expect(updated.notes, '一行备注');
+      expect(updated.subtasks.single.title, '第一个子任务');
+
+      await tester.tap(find.byKey(Key('task-expand-${task.id}')));
+      await _flushMicrotasks(tester);
+      expect(find.byKey(Key('task-note-${task.id}')), findsNothing);
+      expect(find.text('第一个子任务'), findsOneWidget);
+
+      final subtask = repository.tasks.single.subtasks.single;
+      await tester.tap(
+        find.byKey(Key('subtask-checkbox-${task.id}-${subtask.id}')),
+      );
+      await _flushMicrotasks(tester);
+      expect(repository.tasks.single.subtasks.single.isCompleted, isTrue);
+    },
+  );
 
   testWidgets('opens settings and changes the font', (tester) async {
     final controller = AppSettingsController.inMemory();
@@ -104,7 +157,47 @@ class _MemoryRepository extends VaultRepository {
   }
 
   @override
+  Future<GoodDayTask> updateTaskDetails(
+    GoodDayTask task, {
+    required String title,
+    required String notes,
+  }) async {
+    return _replace(task.updateDetails(title: title, notes: notes));
+  }
+
+  @override
+  Future<GoodDayTask> addSubtask(GoodDayTask task, String title) async {
+    final updated = task.addSubtask(
+      GoodDaySubtask(id: 'sub_${++_sequence}', title: title),
+    );
+    return _replace(updated);
+  }
+
+  @override
+  Future<GoodDayTask> updateSubtask(
+    GoodDayTask task,
+    String subtaskId, {
+    String? title,
+    bool? isCompleted,
+  }) async {
+    return _replace(
+      task.updateSubtask(subtaskId, title: title, isCompleted: isCompleted),
+    );
+  }
+
+  @override
+  Future<GoodDayTask> removeSubtask(GoodDayTask task, String subtaskId) async {
+    return _replace(task.removeSubtask(subtaskId));
+  }
+
+  @override
   Future<void> deleteTask(GoodDayTask task) async {
     tasks.removeWhere((item) => item.id == task.id);
+  }
+
+  GoodDayTask _replace(GoodDayTask updated) {
+    final index = tasks.indexWhere((item) => item.id == updated.id);
+    tasks[index] = updated;
+    return updated;
   }
 }

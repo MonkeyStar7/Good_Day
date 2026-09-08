@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as acrylic;
 import 'package:window_manager/window_manager.dart';
 
@@ -142,6 +144,8 @@ class _HomePageState extends State<HomePage> {
   List<GoodDayTask> _tasks = [];
   late VaultRepository _repository;
   bool _loading = true;
+  bool _isAdding = false;
+  String? _expandedTaskId;
   String? _error;
 
   @override
@@ -179,11 +183,25 @@ class _HomePageState extends State<HomePage> {
   Future<void> _addTask() async {
     final title = _controller.text.trim();
     if (title.isEmpty) return;
-    _controller.clear();
     final task = await _repository.addTask(title);
     if (!mounted) return;
-    setState(() => _tasks = [task, ..._tasks]);
-    _focusNode.requestFocus();
+    setState(() {
+      _controller.clear();
+      _isAdding = false;
+      _tasks = [task, ..._tasks];
+    });
+  }
+
+  void _startAdding() {
+    setState(() => _isAdding = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+  }
+
+  void _cancelAdding() {
+    _controller.clear();
+    setState(() => _isAdding = false);
   }
 
   Future<void> _toggleTask(GoodDayTask task, bool? value) async {
@@ -199,9 +217,62 @@ class _HomePageState extends State<HomePage> {
   Future<void> _deleteTask(GoodDayTask task) async {
     await _repository.deleteTask(task);
     if (!mounted) return;
-    setState(() => _tasks.removeWhere((item) => item.id == task.id));
+    setState(() {
+      _tasks.removeWhere((item) => item.id == task.id);
+      if (_expandedTaskId == task.id) _expandedTaskId = null;
+    });
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('任务已移到 Archive')));
+  }
+
+  GoodDayTask _taskById(String taskId) =>
+      _tasks.firstWhere((task) => task.id == taskId);
+
+  void _replaceTask(GoodDayTask updated, {bool sort = false}) {
+    final index = _tasks.indexWhere((task) => task.id == updated.id);
+    if (index >= 0) _tasks[index] = updated;
+    if (sort) _sortTasks();
+  }
+
+  Future<void> _updateTaskDetails(
+    String taskId,
+    String title,
+    String notes,
+  ) async {
+    final updated = await _repository.updateTaskDetails(
+      _taskById(taskId),
+      title: title,
+      notes: notes,
+    );
+    if (mounted) setState(() => _replaceTask(updated));
+  }
+
+  Future<void> _addSubtask(String taskId, String title) async {
+    final updated = await _repository.addSubtask(_taskById(taskId), title);
+    if (mounted) setState(() => _replaceTask(updated));
+  }
+
+  Future<void> _updateSubtask(
+    String taskId,
+    String subtaskId, {
+    String? title,
+    bool? isCompleted,
+  }) async {
+    final updated = await _repository.updateSubtask(
+      _taskById(taskId),
+      subtaskId,
+      title: title,
+      isCompleted: isCompleted,
+    );
+    if (mounted) setState(() => _replaceTask(updated));
+  }
+
+  Future<void> _removeSubtask(String taskId, String subtaskId) async {
+    final updated = await _repository.removeSubtask(
+      _taskById(taskId),
+      subtaskId,
+    );
+    if (mounted) setState(() => _replaceTask(updated));
   }
 
   void _sortTasks() {
@@ -298,15 +369,8 @@ class _HomePageState extends State<HomePage> {
                       total: _tasks.length,
                     ),
                     const SizedBox(height: 24),
-                    _QuickAdd(
-                      controller: _controller,
-                      focusNode: _focusNode,
-                      onAdd: _addTask,
-                    ),
-                    const SizedBox(height: 24),
                     _SectionLabel(taskCount: _tasks.length),
                     const SizedBox(height: 8),
-                    const Divider(height: 1, thickness: 0.7, color: _line),
                     Expanded(child: _buildTaskArea()),
                     const Divider(height: 1, thickness: 0.7, color: _line),
                     const SizedBox(height: 12),
@@ -331,23 +395,50 @@ class _HomePageState extends State<HomePage> {
       );
     }
     if (_error != null) return _ErrorState(message: _error!, onRetry: _load);
-    if (_tasks.isEmpty) return const _EmptyState();
-
     return Scrollbar(
       thickness: 2,
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        itemCount: _tasks.length,
-        separatorBuilder: (_, _) =>
-            const Divider(height: 1, color: Color(0x26737873)),
+      child: ListView.builder(
+        padding: EdgeInsets.zero,
+        itemCount: _tasks.length + 5,
         itemBuilder: (context, index) {
-          final task = _tasks[index];
-          return _TaskTile(
-            key: ValueKey(task.id),
-            task: task,
-            onChanged: (value) => _toggleTask(task, value),
-            onDelete: () => _deleteTask(task),
-          );
+          if (index < _tasks.length) {
+            final task = _tasks[index];
+            return _TaskTile(
+              key: ValueKey(task.id),
+              number: index + 1,
+              task: task,
+              expanded: _expandedTaskId == task.id,
+              onToggleExpanded: () => setState(() {
+                _expandedTaskId = _expandedTaskId == task.id ? null : task.id;
+              }),
+              onChanged: (value) => _toggleTask(task, value),
+              onDetailsChanged: (title, notes) =>
+                  _updateTaskDetails(task.id, title, notes),
+              onAddSubtask: (title) => _addSubtask(task.id, title),
+              onUpdateSubtask: (subtaskId, {title, isCompleted}) =>
+                  _updateSubtask(
+                    task.id,
+                    subtaskId,
+                    title: title,
+                    isCompleted: isCompleted,
+                  ),
+              onRemoveSubtask: (subtaskId) =>
+                  _removeSubtask(task.id, subtaskId),
+              onDelete: () => _deleteTask(task),
+            );
+          }
+          if (index == _tasks.length) {
+            return _AddTaskRow(
+              number: index + 1,
+              editing: _isAdding,
+              controller: _controller,
+              focusNode: _focusNode,
+              onStart: _startAdding,
+              onAdd: _addTask,
+              onCancel: _cancelAdding,
+            );
+          }
+          return _BlankTaskRow(number: index + 1);
         },
       ),
     );
@@ -584,64 +675,105 @@ class _TodayHeader extends StatelessWidget {
   }
 }
 
-class _QuickAdd extends StatelessWidget {
-  const _QuickAdd({
+class _AddTaskRow extends StatelessWidget {
+  const _AddTaskRow({
+    required this.number,
+    required this.editing,
     required this.controller,
     required this.focusNode,
+    required this.onStart,
     required this.onAdd,
+    required this.onCancel,
   });
 
+  final int number;
+  final bool editing;
   final TextEditingController controller;
   final FocusNode focusNode;
+  final VoidCallback onStart;
   final VoidCallback onAdd;
+  final VoidCallback onCancel;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 46,
-      decoration: BoxDecoration(
-        color: const Color(0x3DFFFFFF),
-        border: Border.all(color: _line),
+      height: 48,
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: _line, width: 0.7)),
       ),
       child: Row(
         children: [
-          const SizedBox(width: 13),
-          const Icon(Icons.add, size: 17, color: _muted),
-          const SizedBox(width: 8),
-          Expanded(
-            child: TextField(
-              key: const Key('new-task-field'),
-              controller: controller,
-              focusNode: focusNode,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => onAdd(),
-              style: const TextStyle(color: _ink, fontSize: 13),
-              decoration: const InputDecoration(
-                hintText: '添加任务',
-                hintStyle: TextStyle(color: Color(0xFF858A86), fontSize: 13),
-                border: InputBorder.none,
-                isDense: true,
-              ),
+          SizedBox(
+            width: 26,
+            child: Text(
+              '$number',
+              style: const TextStyle(color: _muted, fontSize: 10),
             ),
           ),
-          SizedBox(
-            width: 46,
-            height: 46,
-            child: IconButton(
-              key: const Key('add-task-button'),
-              onPressed: onAdd,
-              tooltip: '添加任务',
-              color: Colors.white,
-              style: IconButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.primary,
-                shape: const RoundedRectangleBorder(
-                  borderRadius: BorderRadius.zero,
+          if (editing)
+            Expanded(
+              child: CallbackShortcuts(
+                bindings: {
+                  const SingleActivator(LogicalKeyboardKey.escape): onCancel,
+                },
+                child: TextField(
+                  key: const Key('new-task-field'),
+                  controller: controller,
+                  focusNode: focusNode,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => onAdd(),
+                  style: const TextStyle(color: _ink, fontSize: 13),
+                  decoration: const InputDecoration(
+                    hintText: '输入任务内容',
+                    hintStyle: TextStyle(color: Color(0xFF929692)),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
                 ),
               ),
-              icon: const Icon(Icons.arrow_upward, size: 17),
+            )
+          else
+            InkWell(
+              key: const Key('add-task-button'),
+              onTap: onStart,
+              child: const SizedBox(
+                width: 44,
+                height: 48,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Icon(Icons.add, size: 17, color: _muted),
+                ),
+              ),
             ),
-          ),
+          if (!editing) const Spacer(),
         ],
+      ),
+    );
+  }
+}
+
+class _BlankTaskRow extends StatelessWidget {
+  const _BlankTaskRow({required this.number});
+
+  final int number;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 48,
+      decoration: const BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: Color(0x26737873), width: 0.7),
+        ),
+      ),
+      alignment: Alignment.centerLeft,
+      child: SizedBox(
+        width: 26,
+        child: Text(
+          '$number',
+          style: const TextStyle(color: Color(0x66707571), fontSize: 10),
+        ),
       ),
     );
   }
@@ -674,16 +806,36 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
+typedef SubtaskUpdateCallback = Future<void> Function(
+  String subtaskId, {
+  String? title,
+  bool? isCompleted,
+});
+
 class _TaskTile extends StatefulWidget {
   const _TaskTile({
     super.key,
+    required this.number,
     required this.task,
+    required this.expanded,
+    required this.onToggleExpanded,
     required this.onChanged,
+    required this.onDetailsChanged,
+    required this.onAddSubtask,
+    required this.onUpdateSubtask,
+    required this.onRemoveSubtask,
     required this.onDelete,
   });
 
+  final int number;
   final GoodDayTask task;
+  final bool expanded;
+  final VoidCallback onToggleExpanded;
   final ValueChanged<bool?> onChanged;
+  final Future<void> Function(String title, String notes) onDetailsChanged;
+  final Future<void> Function(String title) onAddSubtask;
+  final SubtaskUpdateCallback onUpdateSubtask;
+  final Future<void> Function(String subtaskId) onRemoveSubtask;
   final VoidCallback onDelete;
 
   @override
@@ -691,7 +843,125 @@ class _TaskTile extends StatefulWidget {
 }
 
 class _TaskTileState extends State<_TaskTile> {
+  late final TextEditingController _titleController;
+  late final TextEditingController _noteController;
+  final _titleFocus = FocusNode();
+  final _noteFocus = FocusNode();
+  final _newSubtaskController = TextEditingController();
+  final _newSubtaskFocus = FocusNode();
+  Timer? _saveTimer;
+  Timer? _savedTimer;
   bool _hovering = false;
+  bool _addingSubtask = false;
+  bool _saving = false;
+  bool _saved = false;
+  bool _titleError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController(text: widget.task.title);
+    _noteController = TextEditingController(text: widget.task.notes);
+  }
+
+  @override
+  void didUpdateWidget(covariant _TaskTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_titleFocus.hasFocus && _titleController.text != widget.task.title) {
+      _titleController.text = widget.task.title;
+    }
+    if (!_noteFocus.hasFocus && _noteController.text != widget.task.notes) {
+      _noteController.text = widget.task.notes;
+    }
+  }
+
+  @override
+  void dispose() {
+    _saveTimer?.cancel();
+    _savedTimer?.cancel();
+    _titleController.dispose();
+    _noteController.dispose();
+    _newSubtaskController.dispose();
+    _titleFocus.dispose();
+    _noteFocus.dispose();
+    _newSubtaskFocus.dispose();
+    super.dispose();
+  }
+
+  void _scheduleSave() {
+    _saveTimer?.cancel();
+    final valid = _titleController.text.trim().isNotEmpty;
+    if (_titleError == valid) setState(() => _titleError = !valid);
+    if (!valid) return;
+    _saveTimer = Timer(const Duration(milliseconds: 650), _saveDetails);
+  }
+
+  Future<bool> _saveDetails() async {
+    _saveTimer?.cancel();
+    final title = _titleController.text.trim();
+    if (title.isEmpty) {
+      if (mounted) setState(() => _titleError = true);
+      return false;
+    }
+    final notes = _noteController.text.replaceAll(RegExp(r'[\r\n]+'), ' ');
+    if (title == widget.task.title && notes.trimRight() == widget.task.notes) {
+      return true;
+    }
+
+    if (mounted) setState(() => _saving = true);
+    try {
+      await widget.onDetailsChanged(title, notes);
+      if (!mounted) return true;
+      _savedTimer?.cancel();
+      setState(() {
+        _saving = false;
+        _saved = true;
+        _titleError = false;
+      });
+      _savedTimer = Timer(const Duration(milliseconds: 1100), () {
+        if (mounted) setState(() => _saved = false);
+      });
+      return true;
+    } catch (error) {
+      if (!mounted) return false;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('保存失败：$error')));
+      return false;
+    }
+  }
+
+  Future<void> _toggleExpanded() async {
+    if (widget.expanded && !await _saveDetails()) return;
+    widget.onToggleExpanded();
+  }
+
+  void _startAddingSubtask() {
+    setState(() => _addingSubtask = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _newSubtaskFocus.requestFocus();
+    });
+  }
+
+  void _cancelAddingSubtask() {
+    _newSubtaskController.clear();
+    setState(() => _addingSubtask = false);
+  }
+
+  Future<void> _submitSubtask() async {
+    final title = _newSubtaskController.text.trim();
+    if (title.isEmpty) return;
+    try {
+      await widget.onAddSubtask(title);
+      if (!mounted) return;
+      _newSubtaskController.clear();
+      setState(() => _addingSubtask = false);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('无法添加子任务：$error')));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -699,59 +969,409 @@ class _TaskTileState extends State<_TaskTile> {
     return MouseRegion(
       onEnter: (_) => setState(() => _hovering = true),
       onExit: (_) => setState(() => _hovering = false),
-      child: ColoredBox(
-        color: _hovering ? const Color(0x1AFFFFFF) : Colors.transparent,
-        child: InkWell(
-          onTap: () => widget.onChanged(!task.isCompleted),
-          child: SizedBox(
-            height: 50,
-            child: Row(
-              children: [
-                Transform.scale(
-                  scale: 0.86,
-                  child: Checkbox(
-                    key: Key('task-checkbox-${task.id}'),
-                    value: task.isCompleted,
-                    onChanged: widget.onChanged,
-                  ),
-                ),
-                const SizedBox(width: 2),
-                Expanded(
-                  child: Text(
-                    task.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: task.isCompleted ? const Color(0xFF858A86) : _ink,
-                      fontSize: 13,
-                      height: 1.25,
-                      fontWeight: FontWeight.w400,
-                      decoration: task.isCompleted
-                          ? TextDecoration.lineThrough
-                          : TextDecoration.none,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        decoration: BoxDecoration(
+          color: _hovering || widget.expanded
+              ? const Color(0x1AFFFFFF)
+              : Colors.transparent,
+          border: const Border(bottom: BorderSide(color: _line, width: 0.7)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 5),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  SizedBox(
+                    width: 26,
+                    child: Text(
+                      '${widget.number}',
+                      style: const TextStyle(color: _muted, fontSize: 10),
                     ),
                   ),
-                ),
-                Opacity(
-                  opacity: _hovering ? 1 : 0.25,
-                  child: IconButton(
-                    key: Key('delete-task-${task.id}'),
-                    onPressed: widget.onDelete,
-                    tooltip: '移到 Archive',
-                    iconSize: 16,
-                    color: _muted,
-                    style: IconButton.styleFrom(
-                      shape: const RoundedRectangleBorder(
-                        borderRadius: BorderRadius.zero,
+                  SizedBox(
+                    width: 34,
+                    child: Transform.scale(
+                      scale: 0.78,
+                      child: Checkbox(
+                        key: Key('task-checkbox-${task.id}'),
+                        value: task.isCompleted,
+                        onChanged: widget.onChanged,
                       ),
                     ),
-                    icon: const Icon(Icons.close),
+                  ),
+                  Expanded(
+                    child: widget.expanded
+                        ? TextField(
+                            key: Key('task-title-${task.id}'),
+                            controller: _titleController,
+                            focusNode: _titleFocus,
+                            autofocus: true,
+                            textInputAction: TextInputAction.done,
+                            onChanged: (_) => _scheduleSave(),
+                            onSubmitted: (_) => _saveDetails(),
+                            style: TextStyle(
+                              color: task.isCompleted
+                                  ? const Color(0xFF858A86)
+                                  : _ink,
+                              fontSize: 13,
+                              decoration: task.isCompleted
+                                  ? TextDecoration.lineThrough
+                                  : TextDecoration.none,
+                            ),
+                            decoration: InputDecoration(
+                              border: InputBorder.none,
+                              isDense: true,
+                              contentPadding: EdgeInsets.zero,
+                              hintText: '任务内容不能为空',
+                              hintStyle: TextStyle(
+                                color: _titleError
+                                    ? const Color(0xFF8B3A32)
+                                    : _muted,
+                              ),
+                            ),
+                          )
+                        : InkWell(
+                            key: Key('task-content-${task.id}'),
+                            onTap: _toggleExpanded,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 9),
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  task.title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: task.isCompleted
+                                        ? const Color(0xFF858A86)
+                                        : _ink,
+                                    fontSize: 13,
+                                    height: 1.25,
+                                    decoration: task.isCompleted
+                                        ? TextDecoration.lineThrough
+                                        : TextDecoration.none,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                  ),
+                  IconButton(
+                    key: Key('task-expand-${task.id}'),
+                    onPressed: _toggleExpanded,
+                    tooltip: widget.expanded ? '收起' : '编辑任务',
+                    iconSize: 15,
+                    color: _muted,
+                    visualDensity: VisualDensity.compact,
+                    icon: Icon(
+                      widget.expanded
+                          ? Icons.keyboard_arrow_up
+                          : Icons.keyboard_arrow_down,
+                    ),
+                  ),
+                  if (!widget.expanded)
+                    Opacity(
+                      opacity: _hovering ? 1 : 0.2,
+                      child: IconButton(
+                        key: Key('delete-task-${task.id}'),
+                        onPressed: widget.onDelete,
+                        tooltip: '移到 Archive',
+                        iconSize: 14,
+                        color: _muted,
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.close),
+                      ),
+                    ),
+                ],
+              ),
+              if (widget.expanded) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(60, 2, 38, 7),
+                  child: TextField(
+                    key: Key('task-note-${task.id}'),
+                    controller: _noteController,
+                    focusNode: _noteFocus,
+                    maxLines: 1,
+                    textInputAction: TextInputAction.done,
+                    onChanged: (_) => _scheduleSave(),
+                    onSubmitted: (_) => _saveDetails(),
+                    style: const TextStyle(color: _muted, fontSize: 11),
+                    decoration: const InputDecoration(
+                      hintText: '添加一行备注',
+                      hintStyle: TextStyle(color: Color(0xFF929692)),
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(vertical: 7),
+                      enabledBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(color: Color(0x26737873)),
+                      ),
+                      focusedBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(color: _muted),
+                      ),
+                    ),
                   ),
                 ),
-              ],
-            ),
+                for (final subtask in task.subtasks)
+                  _EditableSubtaskRow(
+                    key: ValueKey(subtask.id),
+                    taskId: task.id,
+                    subtask: subtask,
+                    onUpdate: widget.onUpdateSubtask,
+                    onRemove: widget.onRemoveSubtask,
+                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(60, 1, 38, 6),
+                  child: _addingSubtask
+                      ? CallbackShortcuts(
+                          bindings: {
+                            const SingleActivator(LogicalKeyboardKey.escape):
+                                _cancelAddingSubtask,
+                          },
+                          child: TextField(
+                            key: Key('new-subtask-field-${task.id}'),
+                            controller: _newSubtaskController,
+                            focusNode: _newSubtaskFocus,
+                            textInputAction: TextInputAction.done,
+                            onSubmitted: (_) => _submitSubtask(),
+                            style: const TextStyle(color: _ink, fontSize: 11),
+                            decoration: const InputDecoration(
+                              hintText: '输入子任务',
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(vertical: 6),
+                              enabledBorder: UnderlineInputBorder(
+                                borderSide: BorderSide(
+                                  color: Color(0x26737873),
+                                ),
+                              ),
+                            ),
+                          ),
+                        )
+                      : InkWell(
+                          key: Key('add-subtask-${task.id}'),
+                          onTap: _startAddingSubtask,
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 6),
+                            child: Row(
+                              children: [
+                                Icon(Icons.add, size: 14, color: _muted),
+                                SizedBox(width: 7),
+                                Text(
+                                  '添加子任务',
+                                  style: TextStyle(color: _muted, fontSize: 10),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                ),
+                if (_saving || _saved || _titleError)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(60, 0, 38, 5),
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        _titleError
+                            ? '任务内容不能为空'
+                            : _saving
+                            ? '保存中…'
+                            : '已保存',
+                        style: TextStyle(
+                          color: _titleError ? const Color(0xFF8B3A32) : _muted,
+                          fontSize: 9,
+                        ),
+                      ),
+                    ),
+                  ),
+              ] else
+                for (final subtask in task.subtasks)
+                  _CompactSubtaskRow(
+                    taskId: task.id,
+                    subtask: subtask,
+                    onUpdate: widget.onUpdateSubtask,
+                  ),
+            ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _CompactSubtaskRow extends StatelessWidget {
+  const _CompactSubtaskRow({
+    required this.taskId,
+    required this.subtask,
+    required this.onUpdate,
+  });
+
+  final String taskId;
+  final GoodDaySubtask subtask;
+  final SubtaskUpdateCallback onUpdate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(56, 0, 38, 3),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 24,
+            height: 22,
+            child: Transform.scale(
+              scale: 0.62,
+              child: Checkbox(
+                key: Key('subtask-checkbox-$taskId-${subtask.id}'),
+                value: subtask.isCompleted,
+                onChanged: (value) =>
+                    onUpdate(subtask.id, isCompleted: value ?? false),
+              ),
+            ),
+          ),
+          const SizedBox(width: 3),
+          Expanded(
+            child: Text(
+              subtask.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: subtask.isCompleted ? const Color(0xFF969A96) : _muted,
+                fontSize: 10,
+                decoration: subtask.isCompleted
+                    ? TextDecoration.lineThrough
+                    : TextDecoration.none,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EditableSubtaskRow extends StatefulWidget {
+  const _EditableSubtaskRow({
+    super.key,
+    required this.taskId,
+    required this.subtask,
+    required this.onUpdate,
+    required this.onRemove,
+  });
+
+  final String taskId;
+  final GoodDaySubtask subtask;
+  final SubtaskUpdateCallback onUpdate;
+  final Future<void> Function(String subtaskId) onRemove;
+
+  @override
+  State<_EditableSubtaskRow> createState() => _EditableSubtaskRowState();
+}
+
+class _EditableSubtaskRowState extends State<_EditableSubtaskRow> {
+  late final TextEditingController _controller;
+  final _focusNode = FocusNode();
+  Timer? _timer;
+  bool _error = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.subtask.title);
+  }
+
+  @override
+  void didUpdateWidget(covariant _EditableSubtaskRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_focusNode.hasFocus && _controller.text != widget.subtask.title) {
+      _controller.text = widget.subtask.title;
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _scheduleSave() {
+    _timer?.cancel();
+    final valid = _controller.text.trim().isNotEmpty;
+    if (_error == valid) setState(() => _error = !valid);
+    if (!valid) return;
+    _timer = Timer(const Duration(milliseconds: 650), _save);
+  }
+
+  Future<void> _save() async {
+    _timer?.cancel();
+    final title = _controller.text.trim();
+    if (title.isEmpty) {
+      if (mounted) setState(() => _error = true);
+      return;
+    }
+    if (title == widget.subtask.title) return;
+    await widget.onUpdate(widget.subtask.id, title: title);
+    if (mounted) setState(() => _error = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final subtask = widget.subtask;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(56, 0, 28, 1),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 24,
+            height: 28,
+            child: Transform.scale(
+              scale: 0.62,
+              child: Checkbox(
+                key: Key('subtask-checkbox-${widget.taskId}-${subtask.id}'),
+                value: subtask.isCompleted,
+                onChanged: (value) =>
+                    widget.onUpdate(subtask.id, isCompleted: value ?? false),
+              ),
+            ),
+          ),
+          const SizedBox(width: 3),
+          Expanded(
+            child: TextField(
+              key: Key('subtask-title-${widget.taskId}-${subtask.id}'),
+              controller: _controller,
+              focusNode: _focusNode,
+              onChanged: (_) => _scheduleSave(),
+              onSubmitted: (_) => _save(),
+              textInputAction: TextInputAction.done,
+              style: TextStyle(
+                color: subtask.isCompleted ? const Color(0xFF969A96) : _ink,
+                fontSize: 10,
+                decoration: subtask.isCompleted
+                    ? TextDecoration.lineThrough
+                    : TextDecoration.none,
+              ),
+              decoration: InputDecoration(
+                hintText: _error ? '子任务不能为空' : null,
+                hintStyle: const TextStyle(
+                  color: Color(0xFF8B3A32),
+                  fontSize: 10,
+                ),
+                isDense: true,
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 6),
+              ),
+            ),
+          ),
+          IconButton(
+            onPressed: () => widget.onRemove(subtask.id),
+            tooltip: '移除子任务',
+            iconSize: 13,
+            color: _muted,
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.close),
+          ),
+        ],
       ),
     );
   }
@@ -1230,26 +1850,6 @@ class _VaultStatus extends StatelessWidget {
           Icon(Icons.check, size: 12, color: _muted),
           SizedBox(width: 6),
           Text('Markdown 已同步', style: TextStyle(color: _muted, fontSize: 10)),
-        ],
-      ),
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.check, size: 26, color: _muted),
-          SizedBox(height: 10),
-          Text('今天很轻盈', style: TextStyle(color: _ink, fontSize: 14)),
-          SizedBox(height: 4),
-          Text('没有待办任务', style: TextStyle(color: _muted, fontSize: 11)),
         ],
       ),
     );
