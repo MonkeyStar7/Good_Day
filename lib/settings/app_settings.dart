@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 enum AppFont {
+  appleStyle('apple_style', '苹果风格', 'Inter'),
   microsoftYaHeiUi('microsoft_yahei_ui', '微软雅黑 UI', 'Microsoft YaHei UI'),
   microsoftYaHei('microsoft_yahei', '微软雅黑', 'Microsoft YaHei'),
   dengXian('dengxian', '等线', 'DengXian'),
@@ -17,7 +18,7 @@ enum AppFont {
 
   static AppFont fromKey(String? key) => values.firstWhere(
     (font) => font.key == key,
-    orElse: () => AppFont.microsoftYaHeiUi,
+    orElse: () => AppFont.appleStyle,
   );
 }
 
@@ -41,7 +42,7 @@ enum AppAccent {
 
 class AppSettings {
   const AppSettings({
-    this.font = AppFont.microsoftYaHeiUi,
+    this.font = AppFont.appleStyle,
     this.accent = AppAccent.graphite,
   });
 

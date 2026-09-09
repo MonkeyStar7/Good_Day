@@ -44,6 +44,8 @@ void main() {
     expect(tester.widget<Checkbox>(checkbox).value, isTrue);
 
     await tester.tap(find.byKey(Key('delete-task-${task.id}')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm-delete-button')));
     await _flushMicrotasks(tester);
     expect(find.text('完成 Good Day MVP'), findsNothing);
     expect(repository.tasks, isEmpty);
@@ -289,30 +291,33 @@ void main() {
     await _flushMicrotasks(tester);
     await tester.tap(find.byKey(Key('edit-plan-${plan.id}')));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const Key('edit-plan-title')), '新计划');
-    await tester.tap(find.byKey(const Key('save-plan-button')));
-    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(Key('edit-plan-title-${plan.id}')),
+      '新计划',
+    );
+    await tester.pump(const Duration(milliseconds: 700));
+    await _flushMicrotasks(tester);
     expect(repository.plans.single.title, '新计划');
 
-    await tester.tap(find.byKey(Key('edit-plan-${plan.id}')));
+    await tester.tap(find.byKey(Key('delete-plan-${plan.id}')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('delete-plan-button')));
-    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm-delete-button')));
+    await _flushMicrotasks(tester);
     expect(repository.plans, isEmpty);
 
     await tester.tap(find.byKey(const Key('home-mode-switch')));
     await _flushMicrotasks(tester);
     await tester.tap(find.byKey(Key('edit-goal-${goal.id}')));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const Key('edit-goal-name')), '新目标');
-    await tester.tap(find.byKey(const Key('save-goal-button')));
-    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(Key('edit-goal-name-${goal.id}')), '新目标');
+    await tester.pump(const Duration(milliseconds: 700));
+    await _flushMicrotasks(tester);
     expect(repository.goals.single.name, '新目标');
 
-    await tester.tap(find.byKey(Key('edit-goal-${goal.id}')));
+    await tester.tap(find.byKey(Key('delete-goal-${goal.id}')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('delete-goal-button')));
-    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm-delete-button')));
+    await _flushMicrotasks(tester);
     expect(repository.goals, isEmpty);
 
     await tester.tap(find.byKey(const Key('settings-button')));

@@ -5,6 +5,10 @@ import 'package:good_day/settings/app_settings.dart';
 import 'package:good_day/settings/vault_location_store.dart';
 
 void main() {
+  test('new installs use the Apple-style font preset by default', () {
+    expect(const AppSettings().font, AppFont.appleStyle);
+  });
+
   test('appearance settings persist inside the vault', () async {
     final vault = await Directory.systemTemp.createTemp('good_day_settings_');
     addTearDown(() async => vault.delete(recursive: true));
