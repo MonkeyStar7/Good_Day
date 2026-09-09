@@ -9,6 +9,7 @@ import 'package:flutter_acrylic/flutter_acrylic.dart' as acrylic;
 import 'package:window_manager/window_manager.dart';
 
 import 'data/vault_repository.dart';
+import 'desktop_experience.dart';
 import 'models/good_day_goal.dart';
 import 'models/good_day_plan.dart';
 import 'models/good_day_task.dart';
@@ -46,6 +47,8 @@ Future<void> main() async {
 
   await acrylic.Window.initialize();
   await windowManager.ensureInitialized();
+  final desktopExperience = SystemDesktopExperience();
+  await desktopExperience.initialize();
   const options = WindowOptions(
     size: _windowSize,
     backgroundColor: Colors.transparent,
@@ -74,6 +77,7 @@ Future<void> main() async {
       repository: repository,
       settingsController: settingsController,
       vaultLocationStore: vaultLocationStore,
+      desktopExperience: desktopExperience,
     ),
   );
 }
@@ -84,11 +88,13 @@ class GoodDayApp extends StatelessWidget {
     required this.repository,
     required this.settingsController,
     this.vaultLocationStore,
+    this.desktopExperience,
   });
 
   final VaultRepository repository;
   final AppSettingsController settingsController;
   final VaultLocationStore? vaultLocationStore;
+  final DesktopExperience? desktopExperience;
 
   @override
   Widget build(BuildContext context) {
@@ -133,6 +139,7 @@ class GoodDayApp extends StatelessWidget {
             repository: repository,
             settingsController: settingsController,
             vaultLocationStore: vaultLocationStore,
+            desktopExperience: desktopExperience,
           ),
         );
       },
@@ -146,11 +153,13 @@ class HomePage extends StatefulWidget {
     required this.repository,
     required this.settingsController,
     this.vaultLocationStore,
+    this.desktopExperience,
   });
 
   final VaultRepository repository;
   final AppSettingsController settingsController;
   final VaultLocationStore? vaultLocationStore;
+  final DesktopExperience? desktopExperience;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -166,6 +175,7 @@ class _HomePageState extends State<HomePage> {
   _HomeView _view = _HomeView.today;
   bool _loading = true;
   bool _isAdding = false;
+  bool _settingsOpen = false;
   String? _expandedTaskId;
   String? _expandedPlanId;
   String? _expandedGoalId;
@@ -175,11 +185,17 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _repository = widget.repository;
+    widget.desktopExperience?.openSettingsRequests.addListener(
+      _handleOpenSettingsRequest,
+    );
     _load();
   }
 
   @override
   void dispose() {
+    widget.desktopExperience?.openSettingsRequests.removeListener(
+      _handleOpenSettingsRequest,
+    );
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -516,8 +532,12 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  void _openSettings() {
-    Navigator.of(context).push(
+  void _handleOpenSettingsRequest() => _openSettings();
+
+  Future<void> _openSettings() async {
+    if (_settingsOpen) return;
+    _settingsOpen = true;
+    await Navigator.of(context).push(
       PageRouteBuilder<void>(
         transitionDuration: const Duration(milliseconds: 160),
         reverseTransitionDuration: const Duration(milliseconds: 120),
@@ -528,12 +548,17 @@ class _HomePageState extends State<HomePage> {
           onLoadTrash: _loadTrash,
           onRestoreTrashItem: _restoreTrashItem,
           onEmptyTrash: _emptyTrash,
+          isLaunchAtStartupEnabled:
+              widget.desktopExperience?.isLaunchAtStartupEnabled,
+          onLaunchAtStartupChanged:
+              widget.desktopExperience?.setLaunchAtStartupEnabled,
         ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return FadeTransition(opacity: animation, child: child);
         },
       ),
     );
+    _settingsOpen = false;
   }
 
   @override
@@ -548,7 +573,12 @@ class _HomePageState extends State<HomePage> {
         ),
         child: Column(
           children: [
-            _WindowBar(onSettings: _openSettings),
+            _WindowBar(
+              onSettings: _openSettings,
+              onClose: widget.desktopExperience == null
+                  ? null
+                  : () => unawaited(widget.desktopExperience!.hideWindow()),
+            ),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
@@ -740,11 +770,17 @@ class _HomePageState extends State<HomePage> {
 }
 
 class _WindowBar extends StatelessWidget {
-  const _WindowBar({this.title = 'GOOD DAY', this.onBack, this.onSettings});
+  const _WindowBar({
+    this.title = 'GOOD DAY',
+    this.onBack,
+    this.onSettings,
+    this.onClose,
+  });
 
   final String title;
   final VoidCallback? onBack;
   final VoidCallback? onSettings;
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {
@@ -799,7 +835,7 @@ class _WindowBar extends StatelessWidget {
           _WindowButton(
             icon: Icons.close,
             tooltip: '关闭',
-            onPressed: windowManager.close,
+            onPressed: onClose ?? windowManager.close,
           ),
         ],
       ),
@@ -3012,6 +3048,8 @@ typedef VaultSelectedCallback = Future<String> Function(
 typedef LoadTrashCallback = Future<List<TrashItem>> Function();
 typedef RestoreTrashItemCallback = Future<void> Function(TrashItem item);
 typedef EmptyTrashCallback = Future<void> Function();
+typedef IsLaunchAtStartupEnabledCallback = Future<bool> Function();
+typedef LaunchAtStartupChangedCallback = Future<void> Function(bool enabled);
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({
@@ -3022,6 +3060,8 @@ class SettingsPage extends StatefulWidget {
     required this.onLoadTrash,
     required this.onRestoreTrashItem,
     required this.onEmptyTrash,
+    this.isLaunchAtStartupEnabled,
+    this.onLaunchAtStartupChanged,
   });
 
   final AppSettingsController controller;
@@ -3030,6 +3070,8 @@ class SettingsPage extends StatefulWidget {
   final LoadTrashCallback onLoadTrash;
   final RestoreTrashItemCallback onRestoreTrashItem;
   final EmptyTrashCallback onEmptyTrash;
+  final IsLaunchAtStartupEnabledCallback? isLaunchAtStartupEnabled;
+  final LaunchAtStartupChangedCallback? onLaunchAtStartupChanged;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -3039,11 +3081,53 @@ class _SettingsPageState extends State<SettingsPage> {
   late String _vaultPath;
   bool _switchingVault = false;
   bool _deleteSourceAfterMigration = false;
+  bool _launchAtStartup = false;
+  bool _loadingLaunchAtStartup = true;
+  bool _changingLaunchAtStartup = false;
 
   @override
   void initState() {
     super.initState();
     _vaultPath = widget.initialVaultPath;
+    _loadLaunchAtStartup();
+  }
+
+  Future<void> _loadLaunchAtStartup() async {
+    final load = widget.isLaunchAtStartupEnabled;
+    if (load == null) {
+      if (mounted) setState(() => _loadingLaunchAtStartup = false);
+      return;
+    }
+    try {
+      final enabled = await load();
+      if (mounted) {
+        setState(() {
+          _launchAtStartup = enabled;
+          _loadingLaunchAtStartup = false;
+        });
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _loadingLaunchAtStartup = false);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('无法读取开机启动状态：$error')));
+    }
+  }
+
+  Future<void> _changeLaunchAtStartup(bool enabled) async {
+    final change = widget.onLaunchAtStartupChanged;
+    if (change == null || _changingLaunchAtStartup) return;
+    setState(() => _changingLaunchAtStartup = true);
+    try {
+      await change(enabled);
+      if (mounted) setState(() => _launchAtStartup = enabled);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('无法修改开机启动：$error')));
+    } finally {
+      if (mounted) setState(() => _changingLaunchAtStartup = false);
+    }
   }
 
   Future<void> _chooseVault() async {
@@ -3146,8 +3230,89 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                       const SizedBox(height: 5),
                       const Text(
-                        '管理数据位置和界面外观。',
+                        '管理桌面行为、数据位置和界面外观。',
                         style: TextStyle(color: _muted, fontSize: 11),
+                      ),
+                      const SizedBox(height: 28),
+                      const _SettingsSectionTitle(label: '桌面'),
+                      const SizedBox(height: 8),
+                      InkWell(
+                        key: const Key('launch-at-startup-option'),
+                        onTap:
+                            _loadingLaunchAtStartup ||
+                                _changingLaunchAtStartup ||
+                                widget.onLaunchAtStartupChanged == null
+                            ? null
+                            : () => _changeLaunchAtStartup(!_launchAtStartup),
+                        child: Container(
+                          constraints: const BoxConstraints(minHeight: 64),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0x2BFFFFFF),
+                            border: Border.all(color: _line),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.power_settings_new,
+                                size: 18,
+                                color: settings.accent.color,
+                              ),
+                              const SizedBox(width: 10),
+                              const Expanded(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '开机启动',
+                                      style: TextStyle(
+                                        color: _ink,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    SizedBox(height: 3),
+                                    Text(
+                                      '登录 Windows 后自动打开 Good Day',
+                                      style: TextStyle(
+                                        color: _muted,
+                                        fontSize: 9,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (_loadingLaunchAtStartup ||
+                                  _changingLaunchAtStartup)
+                                const SizedBox.square(
+                                  dimension: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 1.4,
+                                  ),
+                                )
+                              else
+                                SizedBox.square(
+                                  dimension: 24,
+                                  child: Checkbox(
+                                    key: const Key(
+                                      'launch-at-startup-checkbox',
+                                    ),
+                                    value: _launchAtStartup,
+                                    onChanged:
+                                        widget.onLaunchAtStartupChanged == null
+                                        ? null
+                                        : (value) => _changeLaunchAtStartup(
+                                            value ?? false,
+                                          ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
                       ),
                       const SizedBox(height: 28),
                       const _SettingsSectionTitle(label: '数据存放位置'),

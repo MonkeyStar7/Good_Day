@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:good_day/data/vault_repository.dart';
+import 'package:good_day/desktop_experience.dart';
 import 'package:good_day/main.dart';
 import 'package:good_day/models/good_day_goal.dart';
 import 'package:good_day/models/good_day_plan.dart';
@@ -161,10 +162,12 @@ void main() {
 
   testWidgets('opens settings and changes the font', (tester) async {
     final controller = AppSettingsController.inMemory();
+    final desktopExperience = _FakeDesktopExperience();
     await tester.pumpWidget(
       GoodDayApp(
         repository: _MemoryRepository(),
         settingsController: controller,
+        desktopExperience: desktopExperience,
       ),
     );
     await _flushMicrotasks(tester);
@@ -174,12 +177,55 @@ void main() {
     expect(find.text('设置'), findsWidgets);
     expect(find.byKey(const Key('choose-vault-button')), findsOneWidget);
     expect(find.byKey(const Key('vault-path')), findsOneWidget);
+    expect(
+      tester
+          .widget<Checkbox>(find.byKey(const Key('launch-at-startup-checkbox')))
+          .value,
+      isFalse,
+    );
 
-    await tester.ensureVisible(find.byKey(const Key('font-dengxian')));
-    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('launch-at-startup-option')));
+    await _flushMicrotasks(tester);
+    expect(desktopExperience.launchAtStartup, isTrue);
+    expect(
+      tester
+          .widget<Checkbox>(find.byKey(const Key('launch-at-startup-checkbox')))
+          .value,
+      isTrue,
+    );
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('font-dengxian')),
+      280,
+      scrollable: find.byType(Scrollable).last,
+    );
     await tester.tap(find.byKey(const Key('font-dengxian')));
     await _flushMicrotasks(tester);
     expect(controller.settings.font, AppFont.dengXian);
+  });
+
+  testWidgets('tray request opens settings and close hides the window', (
+    tester,
+  ) async {
+    final desktopExperience = _FakeDesktopExperience();
+    await tester.pumpWidget(
+      GoodDayApp(
+        repository: _MemoryRepository(),
+        settingsController: AppSettingsController.inMemory(),
+        desktopExperience: desktopExperience,
+      ),
+    );
+    await _flushMicrotasks(tester);
+
+    desktopExperience.requestSettings();
+    await _flushMicrotasks(tester);
+    expect(find.byKey(const Key('launch-at-startup-option')), findsOneWidget);
+
+    await tester.tap(find.byTooltip('返回'));
+    await _flushMicrotasks(tester);
+    await tester.tap(find.byTooltip('关闭'));
+    await _flushMicrotasks(tester);
+    expect(desktopExperience.hideCount, 1);
   });
 
   testWidgets('cycles today, plans, and goals with shared goal labels', (
@@ -335,6 +381,27 @@ void main() {
     expect(repository.goals.single.name, '新目标');
     expect(find.text('垃圾桶是空的'), findsOneWidget);
   });
+}
+
+class _FakeDesktopExperience implements DesktopExperience {
+  @override
+  final ValueNotifier<int> openSettingsRequests = ValueNotifier<int>(0);
+
+  bool launchAtStartup = false;
+  int hideCount = 0;
+
+  void requestSettings() => openSettingsRequests.value++;
+
+  @override
+  Future<void> hideWindow() async => hideCount++;
+
+  @override
+  Future<bool> isLaunchAtStartupEnabled() async => launchAtStartup;
+
+  @override
+  Future<void> setLaunchAtStartupEnabled(bool enabled) async {
+    launchAtStartup = enabled;
+  }
 }
 
 Future<void> _flushMicrotasks(WidgetTester tester) async {

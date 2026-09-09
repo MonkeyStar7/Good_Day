@@ -32,7 +32,9 @@ dependencies:
     sdk: flutter
   file_selector: ^1.1.0
   flutter_acrylic: ^1.1.4
+  launch_at_startup: ^0.5.1
   path_provider: ^2.1.5
+  tray_manager: ^0.5.3
   window_manager: ^0.5.2
 
 dev_dependencies:
