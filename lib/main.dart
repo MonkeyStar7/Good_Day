@@ -723,6 +723,13 @@ class _AddTaskRow extends StatelessWidget {
                   focusNode: focusNode,
                   textInputAction: TextInputAction.done,
                   onSubmitted: (_) => onAdd(),
+                  onTapOutside: (_) {
+                    if (controller.text.trim().isEmpty) {
+                      onCancel();
+                    } else {
+                      onAdd();
+                    }
+                  },
                   style: const TextStyle(color: _ink, fontSize: 13),
                   decoration: const InputDecoration(
                     hintText: '输入任务内容',

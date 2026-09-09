@@ -45,6 +45,38 @@ void main() {
     expect(repository.tasks, isEmpty);
   });
 
+  testWidgets('finishes or cancels a new task when clicking elsewhere', (
+    tester,
+  ) async {
+    final repository = _MemoryRepository();
+    await tester.pumpWidget(
+      GoodDayApp(
+        repository: repository,
+        settingsController: AppSettingsController.inMemory(),
+      ),
+    );
+    await _flushMicrotasks(tester);
+
+    await tester.tap(find.byKey(const Key('add-task-button')));
+    await _flushMicrotasks(tester);
+    await tester.enterText(find.byKey(const Key('new-task-field')), '点击外部创建');
+    await tester.tap(find.text('GOOD DAY'));
+    await _flushMicrotasks(tester);
+
+    expect(repository.tasks.single.title, '点击外部创建');
+    expect(find.text('点击外部创建'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('add-task-button')));
+    await _flushMicrotasks(tester);
+    await tester.enterText(find.byKey(const Key('new-task-field')), '   ');
+    await tester.tap(find.text('GOOD DAY'));
+    await _flushMicrotasks(tester);
+
+    expect(repository.tasks, hasLength(1));
+    expect(find.byKey(const Key('new-task-field')), findsNothing);
+    expect(find.byKey(const Key('add-task-button')), findsOneWidget);
+  });
+
   testWidgets(
     'edits task details and shows checkable subtasks when collapsed',
     (tester) async {
