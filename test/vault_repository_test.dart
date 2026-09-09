@@ -166,6 +166,83 @@ void main() {
     expect(await archived.readAsString(), contains('status: deleted'));
   });
 
+  test('edits plans and restores every deleted item from trash', () async {
+    final goal = await repository.addGoal(
+      name: '学习目标',
+      description: '保持方向',
+      colorValue: 0xFFF2B544,
+    );
+    var plan = await repository.addPlan(
+      title: '原计划',
+      deadline: DateTime(2026, 9, 12),
+      goalId: goal.id,
+    );
+    final task = await repository.addTask('今日任务');
+    plan = await repository.updatePlan(
+      plan,
+      title: '修改后的计划',
+      deadline: DateTime(2026, 9, 20),
+      clearGoal: true,
+    );
+
+    await repository.deleteTask(task);
+    await repository.deletePlan(plan);
+    await repository.deleteGoal(goal);
+
+    final trash = await repository.loadTrash();
+    expect(trash, hasLength(3));
+    expect(trash.map((item) => item.type), containsAll(TrashItemType.values));
+    expect(trash.map((item) => item.title), contains('修改后的计划'));
+
+    for (final item in List<TrashItem>.of(trash)) {
+      await repository.restoreTrashItem(item);
+    }
+
+    expect((await repository.loadTasks()).single.title, '今日任务');
+    expect((await repository.loadPlans()).single.title, '修改后的计划');
+    expect(
+      (await repository.loadPlans()).single.deadline,
+      DateTime(2026, 9, 20),
+    );
+    expect((await repository.loadGoals()).single.name, '学习目标');
+    expect(await repository.loadTrash(), isEmpty);
+  });
+
+  test(
+    'emptying trash permanently removes files and orphaned goal labels',
+    () async {
+      final goal = await repository.addGoal(
+        name: '会被清空的目标',
+        description: '',
+        colorValue: 0xFFF2B544,
+      );
+      var task = await repository.addTask('有关联的任务');
+      task = await repository.assignTaskGoal(task, goal.id);
+      final plan = await repository.addPlan(
+        title: '有关联的计划',
+        deadline: DateTime(2026, 9, 20),
+        goalId: goal.id,
+      );
+      await repository.deleteGoal(goal);
+      expect(await repository.loadTrash(), hasLength(1));
+
+      await repository.emptyTrash();
+
+      expect(await repository.loadTrash(), isEmpty);
+      expect((await repository.loadTasks()).single.goalId, isNull);
+      expect((await repository.loadPlans()).single.goalId, isNull);
+      expect(
+        await File(
+          '${repository.archivedGoalsDirectory.path}'
+          '${Platform.pathSeparator}${goal.id}.md',
+        ).exists(),
+        isFalse,
+      );
+      expect(task.goalId, goal.id);
+      expect(plan.goalId, goal.id);
+    },
+  );
+
   test('copies Markdown data to an empty vault without deleting source', () async {
     final task = await repository.addTask('搬到新的数据文件夹');
     final goal = await repository.addGoal(

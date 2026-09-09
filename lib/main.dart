@@ -271,6 +271,74 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  Future<void> _editPlan(GoodDayPlan plan) async {
+    final result = await showDialog<_PlanEditResult>(
+      context: context,
+      builder: (context) => _PlanEditDialog(plan: plan, goals: _goals),
+    );
+    if (result == null || !mounted) return;
+    if (result.delete) {
+      await _repository.deletePlan(plan);
+      if (!mounted) return;
+      setState(() => _plans.removeWhere((item) => item.id == plan.id));
+      _showMovedToTrash('计划');
+      return;
+    }
+    final updated = await _repository.updatePlan(
+      plan,
+      title: result.title,
+      deadline: result.deadline,
+      goalId: result.goalId,
+      clearGoal: result.goalId == null,
+    );
+    if (!mounted) return;
+    setState(() {
+      final index = _plans.indexWhere((item) => item.id == plan.id);
+      if (index >= 0) _plans[index] = updated;
+      _sortPlans();
+    });
+  }
+
+  Future<void> _editGoal(GoodDayGoal goal) async {
+    final result = await showDialog<_GoalEditResult>(
+      context: context,
+      builder: (context) => _GoalEditDialog(goal: goal),
+    );
+    if (result == null || !mounted) return;
+    if (result.delete) {
+      await _repository.deleteGoal(goal);
+      if (!mounted) return;
+      setState(() => _goals.removeWhere((item) => item.id == goal.id));
+      _showMovedToTrash('目标');
+      return;
+    }
+    final updated = await _repository.updateGoal(
+      goal,
+      name: result.name,
+      description: result.description,
+      colorValue: result.colorValue,
+    );
+    if (!mounted) return;
+    setState(() {
+      final index = _goals.indexWhere((item) => item.id == goal.id);
+      if (index >= 0) _goals[index] = updated;
+    });
+  }
+
+  void _showMovedToTrash(String type) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('$type已移到垃圾桶')));
+  }
+
+  Future<List<TrashItem>> _loadTrash() => _repository.loadTrash();
+
+  Future<void> _restoreTrashItem(TrashItem item) async {
+    await _repository.restoreTrashItem(item);
+    await _load();
+  }
+
+  Future<void> _emptyTrash() => _repository.emptyTrash();
+
   void _sortPlans() {
     _plans.sort((a, b) {
       if (a.isCompleted != b.isCompleted) return a.isCompleted ? 1 : -1;
@@ -295,7 +363,7 @@ class _HomePageState extends State<HomePage> {
       if (_expandedTaskId == task.id) _expandedTaskId = null;
     });
     ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('任务已移到 Archive')));
+        .showSnackBar(const SnackBar(content: Text('任务已移到垃圾桶')));
   }
 
   GoodDayTask _taskById(String taskId) =>
@@ -413,6 +481,9 @@ class _HomePageState extends State<HomePage> {
           controller: widget.settingsController,
           initialVaultPath: _repository.vaultDirectory.path,
           onVaultSelected: _changeVault,
+          onLoadTrash: _loadTrash,
+          onRestoreTrashItem: _restoreTrashItem,
+          onEmptyTrash: _emptyTrash,
         ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return FadeTransition(opacity: animation, child: child);
@@ -561,6 +632,7 @@ class _HomePageState extends State<HomePage> {
               plan: plan,
               goal: _goalById(plan.goalId),
               onChanged: (value) => _togglePlan(plan, value),
+              onEdit: () => _editPlan(plan),
             );
           }
           if (index == _plans.length) {
@@ -588,6 +660,7 @@ class _HomePageState extends State<HomePage> {
               key: ValueKey(_goals[index].id),
               number: index + 1,
               goal: _goals[index],
+              onEdit: () => _editGoal(_goals[index]),
             );
           }
           if (index == _goals.length) {
@@ -1130,70 +1203,84 @@ class _GoalPickerRow extends StatelessWidget {
 }
 
 class _GoalTile extends StatelessWidget {
-  const _GoalTile({super.key, required this.number, required this.goal});
+  const _GoalTile({
+    super.key,
+    required this.number,
+    required this.goal,
+    required this.onEdit,
+  });
 
   final int number;
   final GoodDayGoal goal;
+  final VoidCallback onEdit;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 58),
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: _line, width: 0.7)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 26,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                '$number',
-                style: const TextStyle(color: _muted, fontSize: 10),
+    return InkWell(
+      key: Key('edit-goal-${goal.id}'),
+      onTap: onEdit,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 58),
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: _line, width: 0.7)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 26,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  '$number',
+                  style: const TextStyle(color: _muted, fontSize: 10),
+                ),
               ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(top: 5),
-            child: Container(
-              width: 9,
-              height: 9,
-              color: Color(goal.colorValue),
+            Padding(
+              padding: const EdgeInsets.only(top: 5),
+              child: Container(
+                width: 9,
+                height: 9,
+                color: Color(goal.colorValue),
+              ),
             ),
-          ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  goal.name,
-                  style: const TextStyle(
-                    color: _ink,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                if (goal.description.isNotEmpty) ...[
-                  const SizedBox(height: 4),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    goal.description,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                    goal.name,
                     style: const TextStyle(
-                      color: _muted,
-                      fontSize: 10,
-                      height: 1.35,
+                      color: _ink,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
+                  if (goal.description.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      goal.description,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: _muted,
+                        fontSize: 10,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
-        ],
+            const Padding(
+              padding: EdgeInsets.only(left: 8, top: 2),
+              child: Icon(Icons.edit_outlined, size: 14, color: _muted),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1360,6 +1447,307 @@ class _GoalComposerState extends State<_GoalComposer> {
   }
 }
 
+class _GoalEditResult {
+  const _GoalEditResult({
+    required this.name,
+    required this.description,
+    required this.colorValue,
+  }) : delete = false;
+
+  const _GoalEditResult.deleted()
+    : name = '',
+      description = '',
+      colorValue = 0,
+      delete = true;
+
+  final String name;
+  final String description;
+  final int colorValue;
+  final bool delete;
+}
+
+class _GoalEditDialog extends StatefulWidget {
+  const _GoalEditDialog({required this.goal});
+
+  final GoodDayGoal goal;
+
+  @override
+  State<_GoalEditDialog> createState() => _GoalEditDialogState();
+}
+
+class _GoalEditDialogState extends State<_GoalEditDialog> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _descriptionController;
+  late int _colorValue;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.goal.name);
+    _descriptionController = TextEditingController(
+      text: widget.goal.description,
+    );
+    _colorValue = widget.goal.colorValue;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    if (_nameController.text.trim().isEmpty) return;
+    Navigator.of(context).pop(
+      _GoalEditResult(
+        name: _nameController.text.trim(),
+        description: _descriptionController.text.trim(),
+        colorValue: _colorValue,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+      title: const Text('修改目标', style: TextStyle(fontSize: 17)),
+      content: SizedBox(
+        width: 300,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              key: const Key('edit-goal-name'),
+              controller: _nameController,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: '目标名称'),
+            ),
+            TextField(
+              key: const Key('edit-goal-description'),
+              controller: _descriptionController,
+              maxLines: 2,
+              decoration: const InputDecoration(labelText: '描述'),
+            ),
+            const SizedBox(height: 18),
+            const Text('颜色', style: TextStyle(color: _muted, fontSize: 10)),
+            const SizedBox(height: 9),
+            Wrap(
+              spacing: 10,
+              children: [
+                for (var index = 0; index < _goalPalette.length; index++)
+                  InkWell(
+                    key: Key('edit-goal-color-$index'),
+                    onTap: () => setState(
+                      () => _colorValue = _goalPalette[index].toARGB32(),
+                    ),
+                    child: Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: _goalPalette[index],
+                        border: Border.all(
+                          color: _colorValue == _goalPalette[index].toARGB32()
+                              ? _ink
+                              : Colors.transparent,
+                          width: 1.5,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton.icon(
+          key: const Key('delete-goal-button'),
+          onPressed: () =>
+              Navigator.of(context).pop(const _GoalEditResult.deleted()),
+          icon: const Icon(Icons.delete_outline, size: 16),
+          label: const Text('删除'),
+          style: TextButton.styleFrom(foregroundColor: const Color(0xFF8B3A32)),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const Key('save-goal-button'),
+          onPressed: _save,
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+}
+
+class _PlanEditResult {
+  const _PlanEditResult({
+    required this.title,
+    required this.deadline,
+    required this.goalId,
+  }) : delete = false;
+
+  _PlanEditResult.deleted()
+    : title = '',
+      deadline = DateTime(2000),
+      goalId = null,
+      delete = true;
+
+  final String title;
+  final DateTime deadline;
+  final String? goalId;
+  final bool delete;
+}
+
+class _PlanEditDialog extends StatefulWidget {
+  const _PlanEditDialog({required this.plan, required this.goals});
+
+  final GoodDayPlan plan;
+  final List<GoodDayGoal> goals;
+
+  @override
+  State<_PlanEditDialog> createState() => _PlanEditDialogState();
+}
+
+class _PlanEditDialogState extends State<_PlanEditDialog> {
+  late final TextEditingController _titleController;
+  late DateTime _deadline;
+  String? _goalId;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController(text: widget.plan.title);
+    _deadline = widget.plan.deadline;
+    _goalId = widget.goals.any((goal) => goal.id == widget.plan.goalId)
+        ? widget.plan.goalId
+        : null;
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _chooseDeadline() async {
+    final now = DateTime.now();
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: _deadline.isBefore(now) ? now : _deadline,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: DateTime(now.year + 10, 12, 31),
+      helpText: '修改计划截止日期',
+    );
+    if (selected != null && mounted) setState(() => _deadline = selected);
+  }
+
+  void _save() {
+    if (_titleController.text.trim().isEmpty) return;
+    Navigator.of(context).pop(
+      _PlanEditResult(
+        title: _titleController.text.trim(),
+        deadline: _deadline,
+        goalId: _goalId,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+      title: const Text('修改计划', style: TextStyle(fontSize: 17)),
+      content: SizedBox(
+        width: 300,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              key: const Key('edit-plan-title'),
+              controller: _titleController,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: '计划名称'),
+            ),
+            const SizedBox(height: 12),
+            InkWell(
+              key: const Key('edit-plan-deadline'),
+              onTap: _chooseDeadline,
+              child: SizedBox(
+                height: 40,
+                child: Row(
+                  children: [
+                    const Text(
+                      '截止日期',
+                      style: TextStyle(color: _muted, fontSize: 11),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '${_deadline.year}.${_deadline.month}.${_deadline.day}',
+                      style: const TextStyle(color: _ink, fontSize: 12),
+                    ),
+                    const Icon(Icons.chevron_right, size: 16, color: _muted),
+                  ],
+                ),
+              ),
+            ),
+            if (widget.goals.isNotEmpty)
+              DropdownButtonFormField<String>(
+                key: const Key('edit-plan-goal'),
+                initialValue: _goalId ?? '',
+                decoration: const InputDecoration(labelText: '所属目标'),
+                items: [
+                  const DropdownMenuItem(value: '', child: Text('无目标')),
+                  for (final goal in widget.goals)
+                    DropdownMenuItem(
+                      value: goal.id,
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            color: Color(goal.colorValue),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(goal.name),
+                        ],
+                      ),
+                    ),
+                ],
+                onChanged: (value) => setState(
+                  () => _goalId = value == null || value.isEmpty ? null : value,
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton.icon(
+          key: const Key('delete-plan-button'),
+          onPressed: () => Navigator.of(context).pop(_PlanEditResult.deleted()),
+          icon: const Icon(Icons.delete_outline, size: 16),
+          label: const Text('删除'),
+          style: TextButton.styleFrom(foregroundColor: const Color(0xFF8B3A32)),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const Key('save-plan-button'),
+          onPressed: _save,
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+}
+
 class _PlanTile extends StatelessWidget {
   const _PlanTile({
     super.key,
@@ -1367,12 +1755,14 @@ class _PlanTile extends StatelessWidget {
     required this.plan,
     required this.goal,
     required this.onChanged,
+    required this.onEdit,
   });
 
   final int number;
   final GoodDayPlan plan;
   final GoodDayGoal? goal;
   final ValueChanged<bool?> onChanged;
+  final VoidCallback onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -1388,80 +1778,86 @@ class _PlanTile extends StatelessWidget {
     final accent = goal == null
         ? Theme.of(context).colorScheme.primary
         : Color(goal!.colorValue);
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 7),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: _line, width: 0.7)),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              SizedBox(
-                width: 26,
-                child: Text(
-                  '$number',
-                  style: const TextStyle(color: _muted, fontSize: 10),
-                ),
-              ),
-              SizedBox(
-                width: 34,
-                child: Transform.scale(
-                  scale: 0.78,
-                  child: Checkbox(
-                    key: Key('plan-checkbox-${plan.id}'),
-                    value: plan.isCompleted,
-                    onChanged: onChanged,
-                  ),
-                ),
-              ),
-              Expanded(
-                child: Text(
-                  plan.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: plan.isCompleted ? const Color(0xFF858A86) : _ink,
-                    fontSize: 13,
-                    decoration: plan.isCompleted
-                        ? TextDecoration.lineThrough
-                        : TextDecoration.none,
-                  ),
-                ),
-              ),
-              if (goal != null) _GoalBadge(goal: goal!),
-            ],
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(60, 1, 0, 0),
-            child: Row(
+    return InkWell(
+      key: Key('edit-plan-${plan.id}'),
+      onTap: onEdit,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 7),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: _line, width: 0.7)),
+        ),
+        child: Column(
+          children: [
+            Row(
               children: [
-                Text(
-                  plan.isCompleted
-                      ? '已完成'
-                      : '截止 ${plan.deadline.month}月${plan.deadline.day}日 · $timing',
-                  style: const TextStyle(color: _muted, fontSize: 9),
-                ),
-                const Spacer(),
-                if (!plan.isCompleted)
-                  Text(
-                    '$percent%',
-                    style: const TextStyle(color: _muted, fontSize: 9),
+                SizedBox(
+                  width: 26,
+                  child: Text(
+                    '$number',
+                    style: const TextStyle(color: _muted, fontSize: 10),
                   ),
+                ),
+                SizedBox(
+                  width: 34,
+                  child: Transform.scale(
+                    scale: 0.78,
+                    child: Checkbox(
+                      key: Key('plan-checkbox-${plan.id}'),
+                      value: plan.isCompleted,
+                      onChanged: onChanged,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    plan.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: plan.isCompleted ? const Color(0xFF858A86) : _ink,
+                      fontSize: 13,
+                      decoration: plan.isCompleted
+                          ? TextDecoration.lineThrough
+                          : TextDecoration.none,
+                    ),
+                  ),
+                ),
+                if (goal != null) _GoalBadge(goal: goal!),
+                const SizedBox(width: 7),
+                const Icon(Icons.edit_outlined, size: 14, color: _muted),
               ],
             ),
-          ),
-          if (!plan.isCompleted)
             Padding(
-              padding: const EdgeInsets.fromLTRB(60, 5, 0, 1),
-              child: LinearProgressIndicator(
-                value: fraction,
-                minHeight: 2,
-                color: accent,
-                backgroundColor: const Color(0x28707571),
+              padding: const EdgeInsets.fromLTRB(60, 1, 0, 0),
+              child: Row(
+                children: [
+                  Text(
+                    plan.isCompleted
+                        ? '已完成'
+                        : '截止 ${plan.deadline.month}月${plan.deadline.day}日 · $timing',
+                    style: const TextStyle(color: _muted, fontSize: 9),
+                  ),
+                  const Spacer(),
+                  if (!plan.isCompleted)
+                    Text(
+                      '$percent%',
+                      style: const TextStyle(color: _muted, fontSize: 9),
+                    ),
+                ],
               ),
             ),
-        ],
+            if (!plan.isCompleted)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(60, 5, 0, 1),
+                child: LinearProgressIndicator(
+                  value: fraction,
+                  minHeight: 2,
+                  color: accent,
+                  backgroundColor: const Color(0x28707571),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -2358,6 +2754,9 @@ typedef VaultSelectedCallback = Future<String> Function(
   String path, {
   required bool deleteSourceAfterMigration,
 });
+typedef LoadTrashCallback = Future<List<TrashItem>> Function();
+typedef RestoreTrashItemCallback = Future<void> Function(TrashItem item);
+typedef EmptyTrashCallback = Future<void> Function();
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({
@@ -2365,11 +2764,17 @@ class SettingsPage extends StatefulWidget {
     required this.controller,
     required this.initialVaultPath,
     required this.onVaultSelected,
+    required this.onLoadTrash,
+    required this.onRestoreTrashItem,
+    required this.onEmptyTrash,
   });
 
   final AppSettingsController controller;
   final String initialVaultPath;
   final VaultSelectedCallback onVaultSelected;
+  final LoadTrashCallback onLoadTrash;
+  final RestoreTrashItemCallback onRestoreTrashItem;
+  final EmptyTrashCallback onEmptyTrash;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -2439,6 +2844,18 @@ class _SettingsPageState extends State<SettingsPage> {
     } finally {
       if (mounted) setState(() => _switchingVault = false);
     }
+  }
+
+  void _openTrash() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => TrashPage(
+          onLoad: widget.onLoadTrash,
+          onRestore: widget.onRestoreTrashItem,
+          onEmpty: widget.onEmptyTrash,
+        ),
+      ),
+    );
   }
 
   @override
@@ -2630,6 +3047,60 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ),
                       const SizedBox(height: 28),
+                      const _SettingsSectionTitle(label: '数据管理'),
+                      const SizedBox(height: 8),
+                      InkWell(
+                        key: const Key('trash-button'),
+                        onTap: _openTrash,
+                        child: Container(
+                          height: 58,
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          decoration: BoxDecoration(
+                            color: const Color(0x2BFFFFFF),
+                            border: Border.all(color: _line),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.delete_outline,
+                                size: 19,
+                                color: settings.accent.color,
+                              ),
+                              const SizedBox(width: 10),
+                              const Expanded(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '垃圾桶',
+                                      style: TextStyle(
+                                        color: _ink,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    SizedBox(height: 3),
+                                    Text(
+                                      '查看、恢复或永久清空已删除内容',
+                                      style: TextStyle(
+                                        color: _muted,
+                                        fontSize: 9,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(
+                                Icons.chevron_right,
+                                size: 17,
+                                color: _muted,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 28),
                       const _SettingsSectionTitle(label: '字体'),
                       const SizedBox(height: 8),
                       Container(
@@ -2701,6 +3172,287 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         );
       },
+    );
+  }
+}
+
+class TrashPage extends StatefulWidget {
+  const TrashPage({
+    super.key,
+    required this.onLoad,
+    required this.onRestore,
+    required this.onEmpty,
+  });
+
+  final LoadTrashCallback onLoad;
+  final RestoreTrashItemCallback onRestore;
+  final EmptyTrashCallback onEmpty;
+
+  @override
+  State<TrashPage> createState() => _TrashPageState();
+}
+
+class _TrashPageState extends State<TrashPage> {
+  List<TrashItem> _items = [];
+  bool _loading = true;
+  bool _working = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final items = await widget.onLoad();
+      if (mounted) {
+        setState(() {
+          _items = items;
+          _loading = false;
+        });
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      _showError('无法读取垃圾桶：$error');
+    }
+  }
+
+  Future<void> _restore(TrashItem item) async {
+    if (_working) return;
+    setState(() => _working = true);
+    try {
+      await widget.onRestore(item);
+      if (!mounted) return;
+      setState(
+        () => _items.removeWhere(
+          (candidate) => candidate.type == item.type && candidate.id == item.id,
+        ),
+      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('${_typeLabel(item.type)}已恢复')));
+    } catch (error) {
+      if (mounted) _showError('恢复失败：$error');
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  Future<void> _confirmEmpty() async {
+    if (_items.isEmpty || _working) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        title: const Text('清空垃圾桶？'),
+        content: const Text('这里的内容将被永久删除，无法恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            key: const Key('confirm-empty-trash'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF8B3A32),
+            ),
+            child: const Text('永久清空'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _working = true);
+    try {
+      await widget.onEmpty();
+      if (!mounted) return;
+      setState(() => _items = []);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('垃圾桶已清空')));
+    } catch (error) {
+      if (mounted) _showError('清空失败：$error');
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  String _typeLabel(TrashItemType type) => switch (type) {
+    TrashItemType.task => '任务',
+    TrashItemType.plan => '计划',
+    TrashItemType.goal => '目标',
+  };
+
+  IconData _typeIcon(TrashItemType type) => switch (type) {
+    TrashItemType.task => Icons.check_box_outlined,
+    TrashItemType.plan => Icons.calendar_today_outlined,
+    TrashItemType.goal => Icons.flag_outlined,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xE6F2F3F1),
+          border: Border.all(color: const Color(0x66FFFFFF)),
+        ),
+        child: Column(
+          children: [
+            _WindowBar(title: '垃圾桶', onBack: () => Navigator.of(context).pop()),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '已删除内容',
+                                style: TextStyle(
+                                  color: _ink,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                '删除后仍可在这里恢复。',
+                                style: TextStyle(color: _muted, fontSize: 10),
+                              ),
+                            ],
+                          ),
+                        ),
+                        TextButton.icon(
+                          key: const Key('empty-trash-button'),
+                          onPressed: _items.isEmpty || _working
+                              ? null
+                              : _confirmEmpty,
+                          icon: const Icon(
+                            Icons.delete_forever_outlined,
+                            size: 16,
+                          ),
+                          label: const Text('清空'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: const Color(0xFF8B3A32),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    Expanded(
+                      child: _loading
+                          ? const Center(
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
+                              ),
+                            )
+                          : _items.isEmpty
+                          ? const Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.delete_outline,
+                                    size: 30,
+                                    color: Color(0x66707571),
+                                  ),
+                                  SizedBox(height: 9),
+                                  Text(
+                                    '垃圾桶是空的',
+                                    style: TextStyle(
+                                      color: _muted,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.separated(
+                              itemCount: _items.length,
+                              separatorBuilder: (_, _) =>
+                                  const Divider(height: 1, color: _line),
+                              itemBuilder: (context, index) {
+                                final item = _items[index];
+                                final date = item.deletedAt.toLocal();
+                                return SizedBox(
+                                  key: Key(
+                                    'trash-${item.type.name}-${item.id}',
+                                  ),
+                                  height: 62,
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        _typeIcon(item.type),
+                                        size: 17,
+                                        color: _muted,
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              item.title,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                color: _ink,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              '${_typeLabel(item.type)} · '
+                                              '${date.month}月${date.day}日删除',
+                                              style: const TextStyle(
+                                                color: _muted,
+                                                fontSize: 9,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      TextButton(
+                                        key: Key(
+                                          'restore-${item.type.name}-${item.id}',
+                                        ),
+                                        onPressed: _working
+                                            ? null
+                                            : () => _restore(item),
+                                        child: const Text(
+                                          '恢复',
+                                          style: TextStyle(fontSize: 10),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

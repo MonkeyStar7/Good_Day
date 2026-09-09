@@ -6,6 +6,22 @@ import '../models/good_day_goal.dart';
 import '../models/good_day_plan.dart';
 import '../models/good_day_task.dart';
 
+enum TrashItemType { task, plan, goal }
+
+class TrashItem {
+  const TrashItem({
+    required this.type,
+    required this.id,
+    required this.title,
+    required this.deletedAt,
+  });
+
+  final TrashItemType type;
+  final String id;
+  final String title;
+  final DateTime deletedAt;
+}
+
 class VaultRepository {
   VaultRepository(this.vaultDirectory, {DateTime Function()? clock})
     : _clock = clock ?? DateTime.now;
@@ -16,6 +32,10 @@ class VaultRepository {
   Directory get tasksDirectory => _childDirectory(vaultDirectory, 'Tasks');
   Directory get dailyDirectory => _childDirectory(vaultDirectory, 'Daily');
   Directory get archiveDirectory => _childDirectory(vaultDirectory, 'Archive');
+  Directory get archivedPlansDirectory =>
+      _childDirectory(archiveDirectory, 'Plans');
+  Directory get archivedGoalsDirectory =>
+      _childDirectory(archiveDirectory, 'Goals');
   Directory get goalsDirectory => _childDirectory(vaultDirectory, 'Goals');
   Directory get plansDirectory => _childDirectory(vaultDirectory, 'Plans');
 
@@ -28,6 +48,8 @@ class VaultRepository {
     await tasksDirectory.create(recursive: true);
     await dailyDirectory.create(recursive: true);
     await archiveDirectory.create(recursive: true);
+    await archivedPlansDirectory.create(recursive: true);
+    await archivedGoalsDirectory.create(recursive: true);
     await goalsDirectory.create(recursive: true);
     await plansDirectory.create(recursive: true);
   }
@@ -200,6 +222,16 @@ class VaultRepository {
     return updated;
   }
 
+  Future<void> deleteGoal(GoodDayGoal goal) async {
+    await initialize();
+    await _taskFile(
+      archivedGoalsDirectory,
+      goal.id,
+    ).writeAsString(goal.toMarkdown(), flush: true);
+    final activeFile = _taskFile(goalsDirectory, goal.id);
+    if (await activeFile.exists()) await activeFile.delete();
+  }
+
   Future<List<GoodDayPlan>> loadPlans() async {
     await initialize();
     final plans = <GoodDayPlan>[];
@@ -268,6 +300,16 @@ class VaultRepository {
     );
     await _writePlan(updated);
     return updated;
+  }
+
+  Future<void> deletePlan(GoodDayPlan plan) async {
+    await initialize();
+    await _taskFile(
+      archivedPlansDirectory,
+      plan.id,
+    ).writeAsString(plan.toMarkdown(), flush: true);
+    final activeFile = _taskFile(plansDirectory, plan.id);
+    if (await activeFile.exists()) await activeFile.delete();
   }
 
   Future<GoodDayTask> updateTaskDetails(
@@ -340,6 +382,140 @@ class VaultRepository {
       await activeFile.delete();
     }
     await _syncDaily(await _readTasks(tasksDirectory), now);
+  }
+
+  Future<List<TrashItem>> loadTrash() async {
+    await initialize();
+    final items = <TrashItem>[];
+    await for (final entity in archiveDirectory.list()) {
+      if (entity is! File || !entity.path.toLowerCase().endsWith('.md')) {
+        continue;
+      }
+      try {
+        final task = GoodDayTask.fromMarkdown(await entity.readAsString());
+        final stat = await entity.stat();
+        items.add(
+          TrashItem(
+            type: TrashItemType.task,
+            id: task.id,
+            title: task.title,
+            deletedAt: task.deletedAt ?? stat.changed,
+          ),
+        );
+      } on FormatException {
+        // Keep malformed or hand-written files untouched.
+      }
+    }
+    await _appendArchivedPlans(items);
+    await _appendArchivedGoals(items);
+    items.sort((a, b) => b.deletedAt.compareTo(a.deletedAt));
+    return items;
+  }
+
+  Future<void> restoreTrashItem(TrashItem item) async {
+    await initialize();
+    switch (item.type) {
+      case TrashItemType.task:
+        final source = _taskFile(archiveDirectory, item.id);
+        final restored = GoodDayTask.fromMarkdown(await source.readAsString())
+            .restore();
+        await _writeTask(restored);
+        await source.delete();
+        await _syncDaily(await _readTasks(tasksDirectory), _clock());
+        return;
+      case TrashItemType.plan:
+        await _restoreFile(
+          _taskFile(archivedPlansDirectory, item.id),
+          _taskFile(plansDirectory, item.id),
+        );
+        return;
+      case TrashItemType.goal:
+        await _restoreFile(
+          _taskFile(archivedGoalsDirectory, item.id),
+          _taskFile(goalsDirectory, item.id),
+        );
+        return;
+    }
+  }
+
+  Future<void> emptyTrash() async {
+    await initialize();
+    final removedGoalIds = <String>{};
+    await for (final entity in archivedGoalsDirectory.list()) {
+      if (entity is File && entity.path.toLowerCase().endsWith('.md')) {
+        try {
+          removedGoalIds.add(
+            GoodDayGoal.fromMarkdown(await entity.readAsString()).id,
+          );
+        } on FormatException {
+          // Malformed files are still deleted as part of an explicit empty.
+        }
+      }
+    }
+
+    if (removedGoalIds.isNotEmpty) {
+      for (final task in await _readTasks(tasksDirectory)) {
+        if (removedGoalIds.contains(task.goalId)) {
+          await _writeTask(task.assignGoal(null));
+        }
+      }
+      for (final plan in await loadPlans()) {
+        if (removedGoalIds.contains(plan.goalId)) {
+          await _writePlan(plan.update(clearGoal: true));
+        }
+      }
+    }
+
+    await for (final entity in archiveDirectory.list()) {
+      if (entity is File && entity.path.toLowerCase().endsWith('.md')) {
+        await entity.delete();
+      }
+    }
+    await _deleteContents(archivedPlansDirectory);
+    await _deleteContents(archivedGoalsDirectory);
+    await _syncDaily(await _readTasks(tasksDirectory), _clock());
+  }
+
+  Future<void> _appendArchivedPlans(List<TrashItem> items) async {
+    await for (final entity in archivedPlansDirectory.list()) {
+      if (entity is! File || !entity.path.toLowerCase().endsWith('.md')) {
+        continue;
+      }
+      try {
+        final plan = GoodDayPlan.fromMarkdown(await entity.readAsString());
+        items.add(
+          TrashItem(
+            type: TrashItemType.plan,
+            id: plan.id,
+            title: plan.title,
+            deletedAt: (await entity.stat()).changed,
+          ),
+        );
+      } on FormatException {
+        // Keep malformed or hand-written files untouched.
+      }
+    }
+  }
+
+  Future<void> _appendArchivedGoals(List<TrashItem> items) async {
+    await for (final entity in archivedGoalsDirectory.list()) {
+      if (entity is! File || !entity.path.toLowerCase().endsWith('.md')) {
+        continue;
+      }
+      try {
+        final goal = GoodDayGoal.fromMarkdown(await entity.readAsString());
+        items.add(
+          TrashItem(
+            type: TrashItemType.goal,
+            id: goal.id,
+            title: goal.name,
+            deletedAt: (await entity.stat()).changed,
+          ),
+        );
+      } on FormatException {
+        // Keep malformed or hand-written files untouched.
+      }
+    }
   }
 
   Future<List<GoodDayTask>> _readTasks(Directory directory) async {
@@ -509,6 +685,26 @@ class VaultRepository {
       } else if (entity is File) {
         final target = _childFile(destination, name);
         if (!await target.exists()) await entity.copy(target.path);
+      }
+    }
+  }
+
+  static Future<void> _restoreFile(File source, File destination) async {
+    if (!await source.exists()) {
+      throw const FileSystemException('垃圾桶中的文件不存在');
+    }
+    await destination.parent.create(recursive: true);
+    await source.copy(destination.path);
+    await source.delete();
+  }
+
+  static Future<void> _deleteContents(Directory directory) async {
+    if (!await directory.exists()) return;
+    await for (final entity in directory.list()) {
+      if (entity is Directory) {
+        await entity.delete(recursive: true);
+      } else if (entity is File) {
+        await entity.delete();
       }
     }
   }

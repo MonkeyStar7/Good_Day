@@ -173,6 +173,8 @@ void main() {
     expect(find.byKey(const Key('choose-vault-button')), findsOneWidget);
     expect(find.byKey(const Key('vault-path')), findsOneWidget);
 
+    await tester.ensureVisible(find.byKey(const Key('font-dengxian')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('font-dengxian')));
     await _flushMicrotasks(tester);
     expect(controller.settings.font, AppFont.dengXian);
@@ -254,6 +256,80 @@ void main() {
     expect(repository.plans.single.isCompleted, isTrue);
     expect(find.text('已完成'), findsOneWidget);
   });
+
+  testWidgets('edits and deletes plans and goals, then restores from trash', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(400, 720);
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    final repository = _MemoryRepository();
+    final goal = await repository.addGoal(
+      name: '旧目标',
+      description: '旧描述',
+      colorValue: 0xFFF2B544,
+    );
+    final plan = await repository.addPlan(
+      title: '旧计划',
+      deadline: DateTime.now().add(const Duration(days: 7)),
+      goalId: goal.id,
+    );
+    await tester.pumpWidget(
+      GoodDayApp(
+        repository: repository,
+        settingsController: AppSettingsController.inMemory(),
+      ),
+    );
+    await _flushMicrotasks(tester);
+
+    await tester.tap(find.byKey(const Key('home-mode-switch')));
+    await _flushMicrotasks(tester);
+    await tester.tap(find.byKey(Key('edit-plan-${plan.id}')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('edit-plan-title')), '新计划');
+    await tester.tap(find.byKey(const Key('save-plan-button')));
+    await tester.pumpAndSettle();
+    expect(repository.plans.single.title, '新计划');
+
+    await tester.tap(find.byKey(Key('edit-plan-${plan.id}')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('delete-plan-button')));
+    await tester.pumpAndSettle();
+    expect(repository.plans, isEmpty);
+
+    await tester.tap(find.byKey(const Key('home-mode-switch')));
+    await _flushMicrotasks(tester);
+    await tester.tap(find.byKey(Key('edit-goal-${goal.id}')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('edit-goal-name')), '新目标');
+    await tester.tap(find.byKey(const Key('save-goal-button')));
+    await tester.pumpAndSettle();
+    expect(repository.goals.single.name, '新目标');
+
+    await tester.tap(find.byKey(Key('edit-goal-${goal.id}')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('delete-goal-button')));
+    await tester.pumpAndSettle();
+    expect(repository.goals, isEmpty);
+
+    await tester.tap(find.byKey(const Key('settings-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('trash-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('新计划'), findsOneWidget);
+    expect(find.text('新目标'), findsOneWidget);
+
+    await tester.tap(find.byKey(Key('restore-plan-${plan.id}')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(Key('restore-goal-${goal.id}')));
+    await tester.pumpAndSettle();
+    expect(repository.plans.single.title, '新计划');
+    expect(repository.goals.single.name, '新目标');
+    expect(find.text('垃圾桶是空的'), findsOneWidget);
+  });
 }
 
 Future<void> _flushMicrotasks(WidgetTester tester) async {
@@ -267,6 +343,9 @@ class _MemoryRepository extends VaultRepository {
   final List<GoodDayTask> tasks = [];
   final List<GoodDayGoal> goals = [];
   final List<GoodDayPlan> plans = [];
+  final Map<String, GoodDayTask> trashedTasks = {};
+  final Map<String, GoodDayPlan> trashedPlans = {};
+  final Map<String, GoodDayGoal> trashedGoals = {};
   var _sequence = 0;
 
   @override
@@ -350,6 +429,54 @@ class _MemoryRepository extends VaultRepository {
   }
 
   @override
+  Future<GoodDayGoal> updateGoal(
+    GoodDayGoal goal, {
+    required String name,
+    required String description,
+    required int colorValue,
+  }) async {
+    final updated = goal.update(
+      name: name,
+      description: description,
+      colorValue: colorValue,
+    );
+    final index = goals.indexWhere((item) => item.id == goal.id);
+    goals[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<GoodDayPlan> updatePlan(
+    GoodDayPlan plan, {
+    String? title,
+    DateTime? deadline,
+    String? goalId,
+    bool clearGoal = false,
+  }) async {
+    final updated = plan.update(
+      title: title,
+      deadline: deadline,
+      goalId: goalId,
+      clearGoal: clearGoal,
+    );
+    final index = plans.indexWhere((item) => item.id == plan.id);
+    plans[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<void> deletePlan(GoodDayPlan plan) async {
+    trashedPlans[plan.id] = plan;
+    plans.removeWhere((item) => item.id == plan.id);
+  }
+
+  @override
+  Future<void> deleteGoal(GoodDayGoal goal) async {
+    trashedGoals[goal.id] = goal;
+    goals.removeWhere((item) => item.id == goal.id);
+  }
+
+  @override
   Future<GoodDayTask> updateTaskDetails(
     GoodDayTask task, {
     required String title,
@@ -385,7 +512,55 @@ class _MemoryRepository extends VaultRepository {
 
   @override
   Future<void> deleteTask(GoodDayTask task) async {
+    trashedTasks[task.id] = task;
     tasks.removeWhere((item) => item.id == task.id);
+  }
+
+  @override
+  Future<List<TrashItem>> loadTrash() async => [
+    for (final task in trashedTasks.values)
+      TrashItem(
+        type: TrashItemType.task,
+        id: task.id,
+        title: task.title,
+        deletedAt: DateTime(2026, 9, 9),
+      ),
+    for (final plan in trashedPlans.values)
+      TrashItem(
+        type: TrashItemType.plan,
+        id: plan.id,
+        title: plan.title,
+        deletedAt: DateTime(2026, 9, 9),
+      ),
+    for (final goal in trashedGoals.values)
+      TrashItem(
+        type: TrashItemType.goal,
+        id: goal.id,
+        title: goal.name,
+        deletedAt: DateTime(2026, 9, 9),
+      ),
+  ];
+
+  @override
+  Future<void> restoreTrashItem(TrashItem item) async {
+    switch (item.type) {
+      case TrashItemType.task:
+        tasks.add(trashedTasks.remove(item.id)!);
+        return;
+      case TrashItemType.plan:
+        plans.add(trashedPlans.remove(item.id)!);
+        return;
+      case TrashItemType.goal:
+        goals.add(trashedGoals.remove(item.id)!);
+        return;
+    }
+  }
+
+  @override
+  Future<void> emptyTrash() async {
+    trashedTasks.clear();
+    trashedPlans.clear();
+    trashedGoals.clear();
   }
 
   GoodDayTask _replace(GoodDayTask updated) {

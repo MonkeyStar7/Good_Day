@@ -88,6 +88,20 @@ class GoodDayTask {
     );
   }
 
+  GoodDayTask restore() {
+    return GoodDayTask(
+      id: id,
+      title: title,
+      createdAt: createdAt,
+      scheduledDate: scheduledDate,
+      isCompleted: isCompleted,
+      completedAt: completedAt,
+      notes: notes,
+      subtasks: subtasks,
+      goalId: goalId,
+    );
+  }
+
   GoodDayTask updateDetails({required String title, required String notes}) {
     return GoodDayTask(
       id: id,
