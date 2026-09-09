@@ -22,7 +22,9 @@ void main() {
 
     expect(find.byKey(const Key('add-task-button')), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('add-task-button')));
+    final addRow = find.byKey(const Key('add-task-button'));
+    final addRowRect = tester.getRect(addRow);
+    await tester.tapAt(Offset(addRowRect.right - 8, addRowRect.center.dy));
     await _flushMicrotasks(tester);
     await tester.enterText(
       find.byKey(const Key('new-task-field')),
@@ -100,26 +102,51 @@ void main() {
       await tester.pump(const Duration(milliseconds: 700));
       await _flushMicrotasks(tester);
 
-      await tester.tap(find.byKey(Key('add-subtask-${task.id}')));
+      final addSubtaskRow = find.byKey(Key('add-subtask-${task.id}'));
+      final addSubtaskRect = tester.getRect(addSubtaskRow);
+      await tester.tapAt(
+        Offset(addSubtaskRect.right - 4, addSubtaskRect.center.dy),
+      );
       await _flushMicrotasks(tester);
       await tester.enterText(
         find.byKey(Key('new-subtask-field-${task.id}')),
         '第一个子任务',
       );
-      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.tap(find.text('GOOD DAY'));
       await _flushMicrotasks(tester);
 
       final updated = repository.tasks.single;
       expect(updated.title, '新的任务内容');
       expect(updated.notes, '一行备注');
       expect(updated.subtasks.single.title, '第一个子任务');
-
-      await tester.tap(find.byKey(Key('task-expand-${task.id}')));
-      await _flushMicrotasks(tester);
       expect(find.byKey(Key('task-note-${task.id}')), findsNothing);
       expect(find.text('第一个子任务'), findsOneWidget);
 
+      await tester.tap(find.byKey(Key('task-content-${task.id}')));
+      await _flushMicrotasks(tester);
       final subtask = repository.tasks.single.subtasks.single;
+      await tester.enterText(
+        find.byKey(Key('subtask-title-${task.id}-${subtask.id}')),
+        '修改后的子任务',
+      );
+      await tester.tap(find.text('GOOD DAY'));
+      await _flushMicrotasks(tester);
+      expect(repository.tasks.single.subtasks.single.title, '修改后的子任务');
+      expect(find.byKey(Key('task-note-${task.id}')), findsNothing);
+
+      await tester.tap(find.byKey(Key('task-content-${task.id}')));
+      await _flushMicrotasks(tester);
+      await tester.tap(find.byKey(Key('add-subtask-${task.id}')));
+      await _flushMicrotasks(tester);
+      await tester.enterText(
+        find.byKey(Key('new-subtask-field-${task.id}')),
+        '   ',
+      );
+      await tester.tap(find.text('GOOD DAY'));
+      await _flushMicrotasks(tester);
+      expect(repository.tasks.single.subtasks, hasLength(1));
+      expect(find.byKey(Key('task-note-${task.id}')), findsNothing);
+
       await tester.tap(
         find.byKey(Key('subtask-checkbox-${task.id}-${subtask.id}')),
       );

@@ -702,61 +702,72 @@ class _AddTaskRow extends StatelessWidget {
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: _line, width: 0.7)),
       ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 26,
-            child: Text(
-              '$number',
-              style: const TextStyle(color: _muted, fontSize: 10),
-            ),
-          ),
-          if (editing)
-            Expanded(
-              child: CallbackShortcuts(
-                bindings: {
-                  const SingleActivator(LogicalKeyboardKey.escape): onCancel,
-                },
-                child: TextField(
-                  key: const Key('new-task-field'),
-                  controller: controller,
-                  focusNode: focusNode,
-                  textInputAction: TextInputAction.done,
-                  onSubmitted: (_) => onAdd(),
-                  onTapOutside: (_) {
-                    if (controller.text.trim().isEmpty) {
-                      onCancel();
-                    } else {
-                      onAdd();
-                    }
-                  },
-                  style: const TextStyle(color: _ink, fontSize: 13),
-                  decoration: const InputDecoration(
-                    hintText: '输入任务内容',
-                    hintStyle: TextStyle(color: Color(0xFF929692)),
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
+      child: editing
+          ? Row(
+              children: [
+                SizedBox(
+                  width: 26,
+                  child: Text(
+                    '$number',
+                    style: const TextStyle(color: _muted, fontSize: 10),
                   ),
                 ),
-              ),
+                Expanded(
+                  child: CallbackShortcuts(
+                    bindings: {
+                      const SingleActivator(LogicalKeyboardKey.escape):
+                          onCancel,
+                    },
+                    child: TextField(
+                      key: const Key('new-task-field'),
+                      controller: controller,
+                      focusNode: focusNode,
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => onAdd(),
+                      onTapOutside: (_) {
+                        if (controller.text.trim().isEmpty) {
+                          onCancel();
+                        } else {
+                          onAdd();
+                        }
+                      },
+                      style: const TextStyle(color: _ink, fontSize: 13),
+                      decoration: const InputDecoration(
+                        hintText: '输入任务内容',
+                        hintStyle: TextStyle(color: Color(0xFF929692)),
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             )
-          else
-            InkWell(
+          : InkWell(
               key: const Key('add-task-button'),
               onTap: onStart,
-              child: const SizedBox(
-                width: 44,
-                height: 48,
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Icon(Icons.add, size: 17, color: _muted),
-                ),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 26,
+                    child: Text(
+                      '$number',
+                      style: const TextStyle(color: _muted, fontSize: 10),
+                    ),
+                  ),
+                  const SizedBox(
+                    width: 44,
+                    height: 48,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Icon(Icons.add, size: 17, color: _muted),
+                    ),
+                  ),
+                  const Spacer(),
+                ],
               ),
             ),
-          if (!editing) const Spacer(),
-        ],
-      ),
     );
   }
 }
@@ -974,231 +985,251 @@ class _TaskTileState extends State<_TaskTile> {
   @override
   Widget build(BuildContext context) {
     final task = widget.task;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovering = true),
-      onExit: (_) => setState(() => _hovering = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        decoration: BoxDecoration(
-          color: _hovering || widget.expanded
-              ? const Color(0x1AFFFFFF)
-              : Colors.transparent,
-          border: const Border(bottom: BorderSide(color: _line, width: 0.7)),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 5),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  SizedBox(
-                    width: 26,
-                    child: Text(
-                      '${widget.number}',
-                      style: const TextStyle(color: _muted, fontSize: 10),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 34,
-                    child: Transform.scale(
-                      scale: 0.78,
-                      child: Checkbox(
-                        key: Key('task-checkbox-${task.id}'),
-                        value: task.isCompleted,
-                        onChanged: widget.onChanged,
+    return TapRegion(
+      onTapOutside: widget.expanded ? (_) => _toggleExpanded() : null,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hovering = true),
+        onExit: (_) => setState(() => _hovering = false),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          decoration: BoxDecoration(
+            color: _hovering || widget.expanded
+                ? const Color(0x1AFFFFFF)
+                : Colors.transparent,
+            border: const Border(bottom: BorderSide(color: _line, width: 0.7)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 26,
+                      child: Text(
+                        '${widget.number}',
+                        style: const TextStyle(color: _muted, fontSize: 10),
                       ),
                     ),
-                  ),
-                  Expanded(
-                    child: widget.expanded
-                        ? TextField(
-                            key: Key('task-title-${task.id}'),
-                            controller: _titleController,
-                            focusNode: _titleFocus,
-                            autofocus: true,
-                            textInputAction: TextInputAction.done,
-                            onChanged: (_) => _scheduleSave(),
-                            onSubmitted: (_) => _saveDetails(),
-                            style: TextStyle(
-                              color: task.isCompleted
-                                  ? const Color(0xFF858A86)
-                                  : _ink,
-                              fontSize: 13,
-                              decoration: task.isCompleted
-                                  ? TextDecoration.lineThrough
-                                  : TextDecoration.none,
-                            ),
-                            decoration: InputDecoration(
-                              border: InputBorder.none,
-                              isDense: true,
-                              contentPadding: EdgeInsets.zero,
-                              hintText: '任务内容不能为空',
-                              hintStyle: TextStyle(
-                                color: _titleError
-                                    ? const Color(0xFF8B3A32)
-                                    : _muted,
+                    SizedBox(
+                      width: 34,
+                      child: Transform.scale(
+                        scale: 0.78,
+                        child: Checkbox(
+                          key: Key('task-checkbox-${task.id}'),
+                          value: task.isCompleted,
+                          onChanged: widget.onChanged,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: widget.expanded
+                          ? TextField(
+                              key: Key('task-title-${task.id}'),
+                              controller: _titleController,
+                              focusNode: _titleFocus,
+                              autofocus: true,
+                              textInputAction: TextInputAction.done,
+                              onChanged: (_) => _scheduleSave(),
+                              onSubmitted: (_) => _saveDetails(),
+                              style: TextStyle(
+                                color: task.isCompleted
+                                    ? const Color(0xFF858A86)
+                                    : _ink,
+                                fontSize: 13,
+                                decoration: task.isCompleted
+                                    ? TextDecoration.lineThrough
+                                    : TextDecoration.none,
                               ),
-                            ),
-                          )
-                        : InkWell(
-                            key: Key('task-content-${task.id}'),
-                            onTap: _toggleExpanded,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 9),
-                              child: Align(
-                                alignment: Alignment.centerLeft,
-                                child: Text(
-                                  task.title,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: task.isCompleted
-                                        ? const Color(0xFF858A86)
-                                        : _ink,
-                                    fontSize: 13,
-                                    height: 1.25,
-                                    decoration: task.isCompleted
-                                        ? TextDecoration.lineThrough
-                                        : TextDecoration.none,
+                              decoration: InputDecoration(
+                                border: InputBorder.none,
+                                isDense: true,
+                                contentPadding: EdgeInsets.zero,
+                                hintText: '任务内容不能为空',
+                                hintStyle: TextStyle(
+                                  color: _titleError
+                                      ? const Color(0xFF8B3A32)
+                                      : _muted,
+                                ),
+                              ),
+                            )
+                          : InkWell(
+                              key: Key('task-content-${task.id}'),
+                              onTap: _toggleExpanded,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 9,
+                                ),
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    task.title,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: task.isCompleted
+                                          ? const Color(0xFF858A86)
+                                          : _ink,
+                                      fontSize: 13,
+                                      height: 1.25,
+                                      decoration: task.isCompleted
+                                          ? TextDecoration.lineThrough
+                                          : TextDecoration.none,
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                  ),
-                  IconButton(
-                    key: Key('task-expand-${task.id}'),
-                    onPressed: _toggleExpanded,
-                    tooltip: widget.expanded ? '收起' : '编辑任务',
-                    iconSize: 15,
-                    color: _muted,
-                    visualDensity: VisualDensity.compact,
-                    icon: Icon(
-                      widget.expanded
-                          ? Icons.keyboard_arrow_up
-                          : Icons.keyboard_arrow_down,
                     ),
-                  ),
-                  if (!widget.expanded)
-                    Opacity(
-                      opacity: _hovering ? 1 : 0.2,
-                      child: IconButton(
-                        key: Key('delete-task-${task.id}'),
-                        onPressed: widget.onDelete,
-                        tooltip: '移到 Archive',
-                        iconSize: 14,
-                        color: _muted,
-                        visualDensity: VisualDensity.compact,
-                        icon: const Icon(Icons.close),
+                    IconButton(
+                      key: Key('task-expand-${task.id}'),
+                      onPressed: _toggleExpanded,
+                      tooltip: widget.expanded ? '收起' : '编辑任务',
+                      iconSize: 15,
+                      color: _muted,
+                      visualDensity: VisualDensity.compact,
+                      icon: Icon(
+                        widget.expanded
+                            ? Icons.keyboard_arrow_up
+                            : Icons.keyboard_arrow_down,
                       ),
                     ),
-                ],
-              ),
-              if (widget.expanded) ...[
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(60, 2, 38, 7),
-                  child: TextField(
-                    key: Key('task-note-${task.id}'),
-                    controller: _noteController,
-                    focusNode: _noteFocus,
-                    maxLines: 1,
-                    textInputAction: TextInputAction.done,
-                    onChanged: (_) => _scheduleSave(),
-                    onSubmitted: (_) => _saveDetails(),
-                    style: const TextStyle(color: _muted, fontSize: 11),
-                    decoration: const InputDecoration(
-                      hintText: '添加一行备注',
-                      hintStyle: TextStyle(color: Color(0xFF929692)),
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(vertical: 7),
-                      enabledBorder: UnderlineInputBorder(
-                        borderSide: BorderSide(color: Color(0x26737873)),
+                    if (!widget.expanded)
+                      Opacity(
+                        opacity: _hovering ? 1 : 0.2,
+                        child: IconButton(
+                          key: Key('delete-task-${task.id}'),
+                          onPressed: widget.onDelete,
+                          tooltip: '移到 Archive',
+                          iconSize: 14,
+                          color: _muted,
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.close),
+                        ),
                       ),
-                      focusedBorder: UnderlineInputBorder(
-                        borderSide: BorderSide(color: _muted),
-                      ),
-                    ),
-                  ),
+                  ],
                 ),
-                for (final subtask in task.subtasks)
-                  _EditableSubtaskRow(
-                    key: ValueKey(subtask.id),
-                    taskId: task.id,
-                    subtask: subtask,
-                    onUpdate: widget.onUpdateSubtask,
-                    onRemove: widget.onRemoveSubtask,
+                if (widget.expanded) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(60, 2, 38, 7),
+                    child: TextField(
+                      key: Key('task-note-${task.id}'),
+                      controller: _noteController,
+                      focusNode: _noteFocus,
+                      maxLines: 1,
+                      textInputAction: TextInputAction.done,
+                      onChanged: (_) => _scheduleSave(),
+                      onSubmitted: (_) => _saveDetails(),
+                      style: const TextStyle(color: _muted, fontSize: 11),
+                      decoration: const InputDecoration(
+                        hintText: '添加一行备注',
+                        hintStyle: TextStyle(color: Color(0xFF929692)),
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 7),
+                        enabledBorder: UnderlineInputBorder(
+                          borderSide: BorderSide(color: Color(0x26737873)),
+                        ),
+                        focusedBorder: UnderlineInputBorder(
+                          borderSide: BorderSide(color: _muted),
+                        ),
+                      ),
+                    ),
                   ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(60, 1, 38, 6),
-                  child: _addingSubtask
-                      ? CallbackShortcuts(
-                          bindings: {
-                            const SingleActivator(LogicalKeyboardKey.escape):
-                                _cancelAddingSubtask,
-                          },
-                          child: TextField(
-                            key: Key('new-subtask-field-${task.id}'),
-                            controller: _newSubtaskController,
-                            focusNode: _newSubtaskFocus,
-                            textInputAction: TextInputAction.done,
-                            onSubmitted: (_) => _submitSubtask(),
-                            style: const TextStyle(color: _ink, fontSize: 11),
-                            decoration: const InputDecoration(
-                              hintText: '输入子任务',
-                              isDense: true,
-                              contentPadding: EdgeInsets.symmetric(vertical: 6),
-                              enabledBorder: UnderlineInputBorder(
-                                borderSide: BorderSide(
-                                  color: Color(0x26737873),
+                  for (final subtask in task.subtasks)
+                    _EditableSubtaskRow(
+                      key: ValueKey(subtask.id),
+                      taskId: task.id,
+                      subtask: subtask,
+                      onUpdate: widget.onUpdateSubtask,
+                      onRemove: widget.onRemoveSubtask,
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(60, 1, 38, 6),
+                    child: _addingSubtask
+                        ? CallbackShortcuts(
+                            bindings: {
+                              const SingleActivator(LogicalKeyboardKey.escape):
+                                  _cancelAddingSubtask,
+                            },
+                            child: TextField(
+                              key: Key('new-subtask-field-${task.id}'),
+                              controller: _newSubtaskController,
+                              focusNode: _newSubtaskFocus,
+                              textInputAction: TextInputAction.done,
+                              onSubmitted: (_) => _submitSubtask(),
+                              onTapOutside: (_) {
+                                if (_newSubtaskController.text.trim().isEmpty) {
+                                  _cancelAddingSubtask();
+                                } else {
+                                  _submitSubtask();
+                                }
+                              },
+                              style: const TextStyle(color: _ink, fontSize: 11),
+                              decoration: const InputDecoration(
+                                hintText: '输入子任务',
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(
+                                  vertical: 6,
+                                ),
+                                enabledBorder: UnderlineInputBorder(
+                                  borderSide: BorderSide(
+                                    color: Color(0x26737873),
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        )
-                      : InkWell(
-                          key: Key('add-subtask-${task.id}'),
-                          onTap: _startAddingSubtask,
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 6),
-                            child: Row(
-                              children: [
-                                Icon(Icons.add, size: 14, color: _muted),
-                                SizedBox(width: 7),
-                                Text(
-                                  '添加子任务',
-                                  style: TextStyle(color: _muted, fontSize: 10),
-                                ),
-                              ],
+                          )
+                        : InkWell(
+                            key: Key('add-subtask-${task.id}'),
+                            onTap: _startAddingSubtask,
+                            child: const SizedBox(
+                              width: double.infinity,
+                              height: 30,
+                              child: Row(
+                                children: [
+                                  Icon(Icons.add, size: 14, color: _muted),
+                                  SizedBox(width: 7),
+                                  Text(
+                                    '添加子任务',
+                                    style: TextStyle(
+                                      color: _muted,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                ),
-                if (_saving || _saved || _titleError)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(60, 0, 38, 5),
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        _titleError
-                            ? '任务内容不能为空'
-                            : _saving
-                            ? '保存中…'
-                            : '已保存',
-                        style: TextStyle(
-                          color: _titleError ? const Color(0xFF8B3A32) : _muted,
-                          fontSize: 9,
+                  ),
+                  if (_saving || _saved || _titleError)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(60, 0, 38, 5),
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          _titleError
+                              ? '任务内容不能为空'
+                              : _saving
+                              ? '保存中…'
+                              : '已保存',
+                          style: TextStyle(
+                            color: _titleError
+                                ? const Color(0xFF8B3A32)
+                                : _muted,
+                            fontSize: 9,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-              ] else
-                for (final subtask in task.subtasks)
-                  _CompactSubtaskRow(
-                    taskId: task.id,
-                    subtask: subtask,
-                    onUpdate: widget.onUpdateSubtask,
-                  ),
-            ],
+                ] else
+                  for (final subtask in task.subtasks)
+                    _CompactSubtaskRow(
+                      taskId: task.id,
+                      subtask: subtask,
+                      onUpdate: widget.onUpdateSubtask,
+                    ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1351,6 +1382,7 @@ class _EditableSubtaskRowState extends State<_EditableSubtaskRow> {
               focusNode: _focusNode,
               onChanged: (_) => _scheduleSave(),
               onSubmitted: (_) => _save(),
+              onTapOutside: (_) => _save(),
               textInputAction: TextInputAction.done,
               style: TextStyle(
                 color: subtask.isCompleted ? const Color(0xFF969A96) : _ink,
