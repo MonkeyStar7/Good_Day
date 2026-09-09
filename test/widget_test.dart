@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:good_day/data/vault_repository.dart';
 import 'package:good_day/main.dart';
+import 'package:good_day/models/good_day_goal.dart';
+import 'package:good_day/models/good_day_plan.dart';
 import 'package:good_day/models/good_day_task.dart';
 import 'package:good_day/settings/app_settings.dart';
 
@@ -175,6 +177,83 @@ void main() {
     await _flushMicrotasks(tester);
     expect(controller.settings.font, AppFont.dengXian);
   });
+
+  testWidgets('cycles today, plans, and goals with shared goal labels', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(400, 720);
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    final repository = _MemoryRepository();
+    await tester.pumpWidget(
+      GoodDayApp(
+        repository: repository,
+        settingsController: AppSettingsController.inMemory(),
+      ),
+    );
+    await _flushMicrotasks(tester);
+
+    await tester.tap(find.byKey(const Key('home-mode-switch')));
+    await _flushMicrotasks(tester);
+    expect(find.text('计划'), findsWidgets);
+    await tester.tap(find.byKey(const Key('home-mode-switch')));
+    await _flushMicrotasks(tester);
+    expect(find.text('目标'), findsWidgets);
+
+    await tester.tap(find.byKey(const Key('add-goal-button')));
+    await _flushMicrotasks(tester);
+    await tester.enterText(find.byKey(const Key('new-goal-name')), '深度学习');
+    await tester.enterText(
+      find.byKey(const Key('new-goal-description')),
+      '完成 D2L 学习',
+    );
+    await tester.tap(find.byKey(const Key('goal-color-2')));
+    await tester.tap(find.text('GOOD DAY'));
+    await _flushMicrotasks(tester);
+
+    final goal = repository.goals.single;
+    expect(goal.name, '深度学习');
+    expect(goal.description, '完成 D2L 学习');
+
+    await tester.tap(find.byKey(const Key('home-mode-switch')));
+    await _flushMicrotasks(tester);
+    await tester.tap(find.byKey(const Key('add-task-button')));
+    await _flushMicrotasks(tester);
+    await tester.enterText(find.byKey(const Key('new-task-field')), '阅读第三章');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await _flushMicrotasks(tester);
+    final task = repository.tasks.single;
+    await tester.tap(find.byKey(Key('task-content-${task.id}')));
+    await _flushMicrotasks(tester);
+    await tester.tap(find.byKey(Key('task-goal-${task.id}')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(Key('goal-menu-${goal.id}')));
+    await tester.pumpAndSettle();
+    expect(repository.tasks.single.goalId, goal.id);
+
+    await tester.tap(find.byKey(const Key('home-mode-switch')));
+    await _flushMicrotasks(tester);
+    await tester.tap(find.byKey(const Key('add-plan-button')));
+    await _flushMicrotasks(tester);
+    await tester.enterText(find.byKey(const Key('new-plan-title')), '完成第三章');
+    await tester.tap(find.byKey(const Key('plan-deadline-week')));
+    await tester.tap(find.byKey(Key('plan-goal-${goal.id}')));
+    await tester.tap(find.text('GOOD DAY'));
+    await _flushMicrotasks(tester);
+
+    final plan = repository.plans.single;
+    expect(plan.title, '完成第三章');
+    expect(plan.goalId, goal.id);
+    expect(find.textContaining('%'), findsOneWidget);
+
+    await tester.tap(find.byKey(Key('plan-checkbox-${plan.id}')));
+    await _flushMicrotasks(tester);
+    expect(repository.plans.single.isCompleted, isTrue);
+    expect(find.text('已完成'), findsOneWidget);
+  });
 }
 
 Future<void> _flushMicrotasks(WidgetTester tester) async {
@@ -186,6 +265,8 @@ class _MemoryRepository extends VaultRepository {
   _MemoryRepository() : super(Directory('memory-vault'));
 
   final List<GoodDayTask> tasks = [];
+  final List<GoodDayGoal> goals = [];
+  final List<GoodDayPlan> plans = [];
   var _sequence = 0;
 
   @override
@@ -193,6 +274,12 @@ class _MemoryRepository extends VaultRepository {
 
   @override
   Future<List<GoodDayTask>> loadTasks() async => List.of(tasks);
+
+  @override
+  Future<List<GoodDayGoal>> loadGoals() async => List.of(goals);
+
+  @override
+  Future<List<GoodDayPlan>> loadPlans() async => List.of(plans);
 
   @override
   Future<GoodDayTask> addTask(String title) async {
@@ -212,6 +299,53 @@ class _MemoryRepository extends VaultRepository {
     final updated = task.setCompleted(completed, DateTime(2026, 9, 8, 10));
     final index = tasks.indexWhere((item) => item.id == task.id);
     tasks[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<GoodDayTask> assignTaskGoal(GoodDayTask task, String? goalId) async {
+    return _replace(task.assignGoal(goalId));
+  }
+
+  @override
+  Future<GoodDayGoal> addGoal({
+    required String name,
+    required String description,
+    required int colorValue,
+  }) async {
+    final goal = GoodDayGoal(
+      id: 'goal_${++_sequence}',
+      name: name,
+      description: description,
+      colorValue: colorValue,
+      createdAt: DateTime(2026, 9, 9, 9),
+    );
+    goals.add(goal);
+    return goal;
+  }
+
+  @override
+  Future<GoodDayPlan> addPlan({
+    required String title,
+    required DateTime deadline,
+    String? goalId,
+  }) async {
+    final plan = GoodDayPlan(
+      id: 'plan_${++_sequence}',
+      title: title,
+      createdAt: DateTime.now(),
+      deadline: deadline,
+      goalId: goalId,
+    );
+    plans.add(plan);
+    return plan;
+  }
+
+  @override
+  Future<GoodDayPlan> setPlanCompleted(GoodDayPlan plan, bool completed) async {
+    final updated = plan.setCompleted(completed, DateTime.now());
+    final index = plans.indexWhere((item) => item.id == plan.id);
+    plans[index] = updated;
     return updated;
   }
 

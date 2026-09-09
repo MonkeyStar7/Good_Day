@@ -9,6 +9,8 @@ import 'package:flutter_acrylic/flutter_acrylic.dart' as acrylic;
 import 'package:window_manager/window_manager.dart';
 
 import 'data/vault_repository.dart';
+import 'models/good_day_goal.dart';
+import 'models/good_day_plan.dart';
 import 'models/good_day_task.dart';
 import 'settings/app_settings.dart';
 import 'settings/vault_location_store.dart';
@@ -17,6 +19,16 @@ const _ink = Color(0xFF202421);
 const _muted = Color(0xFF707571);
 const _line = Color(0x4D737873);
 const _windowSize = Size(400, 720);
+const _goalPalette = <Color>[
+  Color(0xFFF2B544),
+  Color(0xFFCF7D5E),
+  Color(0xFF789A7A),
+  Color(0xFF66899B),
+  Color(0xFF8779A6),
+  Color(0xFF9A8371),
+];
+
+enum _HomeView { today, plans, goals }
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -143,7 +155,10 @@ class _HomePageState extends State<HomePage> {
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
   List<GoodDayTask> _tasks = [];
+  List<GoodDayPlan> _plans = [];
+  List<GoodDayGoal> _goals = [];
   late VaultRepository _repository;
+  _HomeView _view = _HomeView.today;
   bool _loading = true;
   bool _isAdding = false;
   String? _expandedTaskId;
@@ -166,9 +181,13 @@ class _HomePageState extends State<HomePage> {
   Future<void> _load() async {
     try {
       final tasks = await _repository.loadTasks();
+      final goals = await _repository.loadGoals();
+      final plans = await _repository.loadPlans();
       if (!mounted) return;
       setState(() {
         _tasks = tasks;
+        _goals = goals;
+        _plans = plans;
         _loading = false;
         _error = null;
       });
@@ -212,6 +231,59 @@ class _HomePageState extends State<HomePage> {
       final index = _tasks.indexWhere((item) => item.id == task.id);
       if (index >= 0) _tasks[index] = updated;
       _sortTasks();
+    });
+  }
+
+  Future<void> _assignTaskGoal(String taskId, String? goalId) async {
+    final updated = await _repository.assignTaskGoal(_taskById(taskId), goalId);
+    if (mounted) setState(() => _replaceTask(updated));
+  }
+
+  Future<void> _addGoal(String name, String description, int colorValue) async {
+    final goal = await _repository.addGoal(
+      name: name,
+      description: description,
+      colorValue: colorValue,
+    );
+    if (mounted) setState(() => _goals = [..._goals, goal]);
+  }
+
+  Future<void> _addPlan(String title, DateTime deadline, String? goalId) async {
+    final plan = await _repository.addPlan(
+      title: title,
+      deadline: deadline,
+      goalId: goalId,
+    );
+    if (!mounted) return;
+    setState(() {
+      _plans = [..._plans, plan];
+      _sortPlans();
+    });
+  }
+
+  Future<void> _togglePlan(GoodDayPlan plan, bool? value) async {
+    final updated = await _repository.setPlanCompleted(plan, value ?? false);
+    if (!mounted) return;
+    setState(() {
+      final index = _plans.indexWhere((item) => item.id == plan.id);
+      if (index >= 0) _plans[index] = updated;
+      _sortPlans();
+    });
+  }
+
+  void _sortPlans() {
+    _plans.sort((a, b) {
+      if (a.isCompleted != b.isCompleted) return a.isCompleted ? 1 : -1;
+      return a.deadline.compareTo(b.deadline);
+    });
+  }
+
+  void _cycleView() {
+    setState(() {
+      _view = _HomeView.values[(_view.index + 1) % _HomeView.values.length];
+      _expandedTaskId = null;
+      _controller.clear();
+      _isAdding = false;
     });
   }
 
@@ -306,6 +378,8 @@ class _HomePageState extends State<HomePage> {
 
     await nextRepository.initialize();
     final tasks = await nextRepository.loadTasks();
+    final goals = await nextRepository.loadGoals();
+    final plans = await nextRepository.loadPlans();
     await widget.settingsController.useVault(targetDirectory);
     await widget.vaultLocationStore?.save(targetDirectory);
 
@@ -313,6 +387,8 @@ class _HomePageState extends State<HomePage> {
       setState(() {
         _repository = nextRepository;
         _tasks = tasks;
+        _goals = goals;
+        _plans = plans;
         _loading = false;
         _error = null;
       });
@@ -364,15 +440,30 @@ class _HomePageState extends State<HomePage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _TodayHeader(
+                    _ModeHeader(
+                      mode: _view,
                       date: DateTime.now(),
                       completed: completed,
                       total: _tasks.length,
+                      planCount: _plans.length,
+                      goalCount: _goals.length,
+                      onTap: _cycleView,
                     ),
                     const SizedBox(height: 24),
-                    _SectionLabel(taskCount: _tasks.length),
+                    _SectionLabel(
+                      label: switch (_view) {
+                        _HomeView.today => '任务',
+                        _HomeView.plans => '计划',
+                        _HomeView.goals => '目标',
+                      },
+                      itemCount: switch (_view) {
+                        _HomeView.today => _tasks.length,
+                        _HomeView.plans => _plans.length,
+                        _HomeView.goals => _goals.length,
+                      },
+                    ),
                     const SizedBox(height: 8),
-                    Expanded(child: _buildTaskArea()),
+                    Expanded(child: _buildCurrentArea()),
                     const Divider(height: 1, thickness: 0.7, color: _line),
                     const SizedBox(height: 12),
                     _VaultStatus(path: _repository.vaultDirectory.path),
@@ -386,7 +477,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildTaskArea() {
+  Widget _buildCurrentArea() {
     if (_loading) {
       return const Center(
         child: SizedBox.square(
@@ -396,6 +487,14 @@ class _HomePageState extends State<HomePage> {
       );
     }
     if (_error != null) return _ErrorState(message: _error!, onRetry: _load);
+    return switch (_view) {
+      _HomeView.today => _buildTaskArea(),
+      _HomeView.plans => _buildPlanArea(),
+      _HomeView.goals => _buildGoalArea(),
+    };
+  }
+
+  Widget _buildTaskArea() {
     return Scrollbar(
       thickness: 2,
       child: ListView.builder(
@@ -408,6 +507,7 @@ class _HomePageState extends State<HomePage> {
               key: ValueKey(task.id),
               number: index + 1,
               task: task,
+              goals: _goals,
               expanded: _expandedTaskId == task.id,
               onToggleExpanded: () => setState(() {
                 _expandedTaskId = _expandedTaskId == task.id ? null : task.id;
@@ -415,6 +515,7 @@ class _HomePageState extends State<HomePage> {
               onChanged: (value) => _toggleTask(task, value),
               onDetailsChanged: (title, notes) =>
                   _updateTaskDetails(task.id, title, notes),
+              onGoalChanged: (goalId) => _assignTaskGoal(task.id, goalId),
               onAddSubtask: (title) => _addSubtask(task.id, title),
               onUpdateSubtask: (subtaskId, {title, isCompleted}) =>
                   _updateSubtask(
@@ -443,6 +544,67 @@ class _HomePageState extends State<HomePage> {
         },
       ),
     );
+  }
+
+  Widget _buildPlanArea() {
+    return Scrollbar(
+      thickness: 2,
+      child: ListView.builder(
+        padding: EdgeInsets.zero,
+        itemCount: _plans.length + 4,
+        itemBuilder: (context, index) {
+          if (index < _plans.length) {
+            final plan = _plans[index];
+            return _PlanTile(
+              key: ValueKey(plan.id),
+              number: index + 1,
+              plan: plan,
+              goal: _goalById(plan.goalId),
+              onChanged: (value) => _togglePlan(plan, value),
+            );
+          }
+          if (index == _plans.length) {
+            return _PlanComposer(
+              number: index + 1,
+              goals: _goals,
+              onCreate: _addPlan,
+            );
+          }
+          return _BlankTaskRow(number: index + 1);
+        },
+      ),
+    );
+  }
+
+  Widget _buildGoalArea() {
+    return Scrollbar(
+      thickness: 2,
+      child: ListView.builder(
+        padding: EdgeInsets.zero,
+        itemCount: _goals.length + 4,
+        itemBuilder: (context, index) {
+          if (index < _goals.length) {
+            return _GoalTile(
+              key: ValueKey(_goals[index].id),
+              number: index + 1,
+              goal: _goals[index],
+            );
+          }
+          if (index == _goals.length) {
+            return _GoalComposer(number: index + 1, onCreate: _addGoal);
+          }
+          return _BlankTaskRow(number: index + 1);
+        },
+      ),
+    );
+  }
+
+  GoodDayGoal? _goalById(String? goalId) {
+    if (goalId == null) return null;
+    for (final goal in _goals) {
+      if (goal.id == goalId) return goal;
+    }
+    return null;
   }
 }
 
@@ -620,58 +782,103 @@ class _GearPainter extends CustomPainter {
   bool shouldRepaint(_GearPainter oldDelegate) => oldDelegate.color != color;
 }
 
-class _TodayHeader extends StatelessWidget {
-  const _TodayHeader({
+class _ModeHeader extends StatelessWidget {
+  const _ModeHeader({
+    required this.mode,
     required this.date,
     required this.completed,
     required this.total,
+    required this.planCount,
+    required this.goalCount,
+    required this.onTap,
   });
 
+  final _HomeView mode;
   final DateTime date;
   final int completed;
   final int total;
+  final int planCount;
+  final int goalCount;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     const weekdays = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
     final progress = total == 0 ? 0.0 : completed / total;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
+    final title = switch (mode) {
+      _HomeView.today => '今天',
+      _HomeView.plans => '计划',
+      _HomeView.goals => '目标',
+    };
+    final count = switch (mode) {
+      _HomeView.today => '$completed / $total 完成',
+      _HomeView.plans => '$planCount 项',
+      _HomeView.goals => '$goalCount 个',
+    };
+    final subtitle = switch (mode) {
+      _HomeView.today =>
+        '${date.year}年${date.month}月${date.day}日  ${weekdays[date.weekday - 1]}',
+      _HomeView.plans => '每一项计划都有明确的截止时间',
+      _HomeView.goals => '用名称、描述和颜色标记长期方向',
+    };
+    return InkWell(
+      key: const Key('home-mode-switch'),
+      onTap: onTap,
+      hoverColor: const Color(0x0A000000),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Expanded(
-              child: Text(
-                '今天',
-                style: TextStyle(
-                  color: _ink,
-                  fontSize: 30,
-                  height: 1,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.8,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: Row(
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: _ink,
+                          fontSize: 30,
+                          height: 1,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.8,
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      const Padding(
+                        padding: EdgeInsets.only(top: 5),
+                        child: Icon(
+                          Icons.chevron_right,
+                          size: 17,
+                          color: _muted,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+                Text(
+                  count,
+                  style: const TextStyle(color: _muted, fontSize: 11),
+                ),
+              ],
             ),
-            Text(
-              '$completed / $total 完成',
-              style: const TextStyle(color: _muted, fontSize: 11),
-            ),
+            const SizedBox(height: 8),
+            Text(subtitle, style: const TextStyle(color: _muted, fontSize: 12)),
+            const SizedBox(height: 16),
+            if (mode == _HomeView.today)
+              LinearProgressIndicator(
+                value: progress,
+                minHeight: 2,
+                color: Theme.of(context).colorScheme.primary,
+                backgroundColor: const Color(0x33707571),
+              )
+            else
+              const Divider(height: 2, thickness: 0.7, color: _line),
           ],
         ),
-        const SizedBox(height: 8),
-        Text(
-          '${date.year}年${date.month}月${date.day}日  ${weekdays[date.weekday - 1]}',
-          style: const TextStyle(color: _muted, fontSize: 12),
-        ),
-        const SizedBox(height: 16),
-        LinearProgressIndicator(
-          value: progress,
-          minHeight: 2,
-          color: Theme.of(context).colorScheme.primary,
-          backgroundColor: const Color(0x33707571),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -799,17 +1006,18 @@ class _BlankTaskRow extends StatelessWidget {
 }
 
 class _SectionLabel extends StatelessWidget {
-  const _SectionLabel({required this.taskCount});
+  const _SectionLabel({required this.label, required this.itemCount});
 
-  final int taskCount;
+  final String label;
+  final int itemCount;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        const Text(
-          '任务',
-          style: TextStyle(
+        Text(
+          label,
+          style: const TextStyle(
             color: _ink,
             fontSize: 12,
             fontWeight: FontWeight.w600,
@@ -817,10 +1025,722 @@ class _SectionLabel extends StatelessWidget {
         ),
         const Spacer(),
         Text(
-          '$taskCount 项',
+          '$itemCount 项',
           style: const TextStyle(color: _muted, fontSize: 11),
         ),
       ],
+    );
+  }
+}
+
+class _GoalBadge extends StatelessWidget {
+  const _GoalBadge({required this.goal});
+
+  final GoodDayGoal goal;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 82),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(width: 6, height: 6, color: Color(goal.colorValue)),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              goal.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: _muted, fontSize: 9),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GoalPickerRow extends StatelessWidget {
+  const _GoalPickerRow({
+    super.key,
+    required this.goals,
+    required this.selectedGoalId,
+    required this.onChanged,
+  });
+
+  final List<GoodDayGoal> goals;
+  final String? selectedGoalId;
+  final Future<void> Function(String? goalId) onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    GoodDayGoal? selected;
+    for (final goal in goals) {
+      if (goal.id == selectedGoalId) selected = goal;
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(60, 0, 38, 3),
+      child: PopupMenuButton<String>(
+        tooltip: '选择目标',
+        onSelected: (value) => onChanged(value.isEmpty ? null : value),
+        color: const Color(0xFFF1F2F0),
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        itemBuilder: (context) => [
+          const PopupMenuItem<String>(
+            value: '',
+            child: Text('无目标', style: TextStyle(fontSize: 11)),
+          ),
+          for (final goal in goals)
+            PopupMenuItem<String>(
+              key: Key('goal-menu-${goal.id}'),
+              value: goal.id,
+              child: Row(
+                children: [
+                  Container(width: 8, height: 8, color: Color(goal.colorValue)),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      goal.name,
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+        child: SizedBox(
+          height: 30,
+          child: Row(
+            children: [
+              const Text('所属目标', style: TextStyle(color: _muted, fontSize: 10)),
+              const Spacer(),
+              if (selected == null)
+                const Text('无', style: TextStyle(color: _muted, fontSize: 10))
+              else
+                _GoalBadge(goal: selected),
+              const SizedBox(width: 3),
+              const Icon(Icons.chevron_right, size: 13, color: _muted),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GoalTile extends StatelessWidget {
+  const _GoalTile({super.key, required this.number, required this.goal});
+
+  final int number;
+  final GoodDayGoal goal;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 58),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: _line, width: 0.7)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 26,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '$number',
+                style: const TextStyle(color: _muted, fontSize: 10),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 5),
+            child: Container(
+              width: 9,
+              height: 9,
+              color: Color(goal.colorValue),
+            ),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  goal.name,
+                  style: const TextStyle(
+                    color: _ink,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (goal.description.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    goal.description,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: _muted,
+                      fontSize: 10,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GoalComposer extends StatefulWidget {
+  const _GoalComposer({required this.number, required this.onCreate});
+
+  final int number;
+  final Future<void> Function(String name, String description, int colorValue)
+  onCreate;
+
+  @override
+  State<_GoalComposer> createState() => _GoalComposerState();
+}
+
+class _GoalComposerState extends State<_GoalComposer> {
+  final _nameController = TextEditingController();
+  final _descriptionController = TextEditingController();
+  final _focusNode = FocusNode();
+  bool _editing = false;
+  bool _saving = false;
+  int _colorValue = _goalPalette.first.toARGB32();
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _descriptionController.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _start() {
+    setState(() => _editing = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+  }
+
+  void _cancel() {
+    _nameController.clear();
+    _descriptionController.clear();
+    setState(() {
+      _editing = false;
+      _colorValue = _goalPalette.first.toARGB32();
+    });
+  }
+
+  Future<void> _finish() async {
+    if (_saving) return;
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
+      _cancel();
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      await widget.onCreate(
+        name,
+        _descriptionController.text.trim(),
+        _colorValue,
+      );
+      if (mounted) _cancel();
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_editing) {
+      return _FullWidthAddRow(
+        key: const Key('add-goal-button'),
+        number: widget.number,
+        onTap: _start,
+      );
+    }
+    return TapRegion(
+      onTapOutside: (_) => _finish(),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 7),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: _line, width: 0.7)),
+        ),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                SizedBox(
+                  width: 26,
+                  child: Text(
+                    '${widget.number}',
+                    style: const TextStyle(color: _muted, fontSize: 10),
+                  ),
+                ),
+                Expanded(
+                  child: TextField(
+                    key: const Key('new-goal-name'),
+                    controller: _nameController,
+                    focusNode: _focusNode,
+                    textInputAction: TextInputAction.next,
+                    style: const TextStyle(color: _ink, fontSize: 13),
+                    decoration: const InputDecoration(
+                      hintText: '目标名称',
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(26, 4, 0, 5),
+              child: TextField(
+                key: const Key('new-goal-description'),
+                controller: _descriptionController,
+                maxLines: 1,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _finish(),
+                style: const TextStyle(color: _muted, fontSize: 10),
+                decoration: const InputDecoration(
+                  hintText: '简短描述（可选）',
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(left: 26),
+              child: Row(
+                children: [
+                  for (var index = 0; index < _goalPalette.length; index++) ...[
+                    InkWell(
+                      key: Key('goal-color-$index'),
+                      onTap: () => setState(
+                        () => _colorValue = _goalPalette[index].toARGB32(),
+                      ),
+                      child: Container(
+                        width: 20,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: _goalPalette[index],
+                          border: Border.all(
+                            color: _colorValue == _goalPalette[index].toARGB32()
+                                ? _ink
+                                : Colors.transparent,
+                            width: 1.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (index != _goalPalette.length - 1)
+                      const SizedBox(width: 9),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PlanTile extends StatelessWidget {
+  const _PlanTile({
+    super.key,
+    required this.number,
+    required this.plan,
+    required this.goal,
+    required this.onChanged,
+  });
+
+  final int number;
+  final GoodDayPlan plan;
+  final GoodDayGoal? goal;
+  final ValueChanged<bool?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final days = plan.remainingDays(now);
+    final fraction = plan.remainingFraction(now);
+    final percent = (fraction * 100).round();
+    final timing = days < 0
+        ? '已超期 ${days.abs()} 天'
+        : days == 0
+        ? '今天截止'
+        : '剩余 $days 天';
+    final accent = goal == null
+        ? Theme.of(context).colorScheme.primary
+        : Color(goal!.colorValue);
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: _line, width: 0.7)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              SizedBox(
+                width: 26,
+                child: Text(
+                  '$number',
+                  style: const TextStyle(color: _muted, fontSize: 10),
+                ),
+              ),
+              SizedBox(
+                width: 34,
+                child: Transform.scale(
+                  scale: 0.78,
+                  child: Checkbox(
+                    key: Key('plan-checkbox-${plan.id}'),
+                    value: plan.isCompleted,
+                    onChanged: onChanged,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  plan.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: plan.isCompleted ? const Color(0xFF858A86) : _ink,
+                    fontSize: 13,
+                    decoration: plan.isCompleted
+                        ? TextDecoration.lineThrough
+                        : TextDecoration.none,
+                  ),
+                ),
+              ),
+              if (goal != null) _GoalBadge(goal: goal!),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(60, 1, 0, 0),
+            child: Row(
+              children: [
+                Text(
+                  plan.isCompleted
+                      ? '已完成'
+                      : '截止 ${plan.deadline.month}月${plan.deadline.day}日 · $timing',
+                  style: const TextStyle(color: _muted, fontSize: 9),
+                ),
+                const Spacer(),
+                if (!plan.isCompleted)
+                  Text(
+                    '$percent%',
+                    style: const TextStyle(color: _muted, fontSize: 9),
+                  ),
+              ],
+            ),
+          ),
+          if (!plan.isCompleted)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(60, 5, 0, 1),
+              child: LinearProgressIndicator(
+                value: fraction,
+                minHeight: 2,
+                color: accent,
+                backgroundColor: const Color(0x28707571),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlanComposer extends StatefulWidget {
+  const _PlanComposer({
+    required this.number,
+    required this.goals,
+    required this.onCreate,
+  });
+
+  final int number;
+  final List<GoodDayGoal> goals;
+  final Future<void> Function(String title, DateTime deadline, String? goalId)
+  onCreate;
+
+  @override
+  State<_PlanComposer> createState() => _PlanComposerState();
+}
+
+class _PlanComposerState extends State<_PlanComposer> {
+  final _controller = TextEditingController();
+  final _focusNode = FocusNode();
+  bool _editing = false;
+  bool _saving = false;
+  bool _choosingDate = false;
+  bool _needsDeadline = false;
+  DateTime? _deadline;
+  String? _goalId;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _start() {
+    setState(() => _editing = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+  }
+
+  void _cancel() {
+    _controller.clear();
+    setState(() {
+      _editing = false;
+      _deadline = null;
+      _goalId = null;
+      _needsDeadline = false;
+    });
+  }
+
+  Future<void> _finish() async {
+    if (_saving || _choosingDate) return;
+    final title = _controller.text.trim();
+    if (title.isEmpty && _deadline == null) {
+      _cancel();
+      return;
+    }
+    if (title.isEmpty || _deadline == null) {
+      setState(() => _needsDeadline = _deadline == null);
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      await widget.onCreate(title, _deadline!, _goalId);
+      if (mounted) _cancel();
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  void _setDeadline(int daysFromNow) {
+    final now = DateTime.now();
+    setState(() {
+      _deadline = DateTime(now.year, now.month, now.day + daysFromNow);
+      _needsDeadline = false;
+    });
+  }
+
+  Future<void> _chooseDeadline() async {
+    setState(() => _choosingDate = true);
+    final now = DateTime.now();
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: _deadline ?? now.add(const Duration(days: 1)),
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: DateTime(now.year + 10, 12, 31),
+      helpText: '选择计划截止日期',
+    );
+    if (!mounted) return;
+    setState(() {
+      _choosingDate = false;
+      if (selected != null) {
+        _deadline = selected;
+        _needsDeadline = false;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_editing) {
+      return _FullWidthAddRow(
+        key: const Key('add-plan-button'),
+        number: widget.number,
+        onTap: _start,
+      );
+    }
+    return TapRegion(
+      onTapOutside: (_) => _finish(),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 7),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: _line, width: 0.7)),
+        ),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                SizedBox(
+                  width: 26,
+                  child: Text(
+                    '${widget.number}',
+                    style: const TextStyle(color: _muted, fontSize: 10),
+                  ),
+                ),
+                Expanded(
+                  child: TextField(
+                    key: const Key('new-plan-title'),
+                    controller: _controller,
+                    focusNode: _focusNode,
+                    style: const TextStyle(color: _ink, fontSize: 13),
+                    decoration: const InputDecoration(
+                      hintText: '计划名称',
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(26, 6, 0, 3),
+              child: Row(
+                children: [
+                  Text(
+                    _deadline == null
+                        ? (_needsDeadline ? '请选择截止日期' : '截止日期')
+                        : '${_deadline!.year}.${_deadline!.month}.${_deadline!.day}',
+                    style: TextStyle(
+                      color: _needsDeadline ? const Color(0xFF8B3A32) : _muted,
+                      fontSize: 10,
+                    ),
+                  ),
+                  const Spacer(),
+                  _ComposerChoice(
+                    key: const Key('plan-deadline-tomorrow'),
+                    label: '明天',
+                    onTap: () => _setDeadline(1),
+                  ),
+                  _ComposerChoice(
+                    key: const Key('plan-deadline-week'),
+                    label: '7天后',
+                    onTap: () => _setDeadline(7),
+                  ),
+                  _ComposerChoice(label: '选择…', onTap: _chooseDeadline),
+                ],
+              ),
+            ),
+            if (widget.goals.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(26, 5, 0, 1),
+                child: Row(
+                  children: [
+                    const Text(
+                      '所属目标',
+                      style: TextStyle(color: _muted, fontSize: 10),
+                    ),
+                    const SizedBox(width: 10),
+                    InkWell(
+                      onTap: () => setState(() => _goalId = null),
+                      child: Container(
+                        width: 16,
+                        height: 16,
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: _goalId == null ? _ink : _line,
+                          ),
+                        ),
+                      ),
+                    ),
+                    for (final goal in widget.goals) ...[
+                      const SizedBox(width: 8),
+                      Tooltip(
+                        message: goal.name,
+                        child: InkWell(
+                          key: Key('plan-goal-${goal.id}'),
+                          onTap: () => setState(() => _goalId = goal.id),
+                          child: Container(
+                            width: 16,
+                            height: 16,
+                            decoration: BoxDecoration(
+                              color: Color(goal.colorValue),
+                              border: Border.all(
+                                color: _goalId == goal.id
+                                    ? _ink
+                                    : Colors.transparent,
+                                width: 1.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ComposerChoice extends StatelessWidget {
+  const _ComposerChoice({super.key, required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Text(label, style: const TextStyle(color: _muted, fontSize: 9)),
+      ),
+    );
+  }
+}
+
+class _FullWidthAddRow extends StatelessWidget {
+  const _FullWidthAddRow({
+    super.key,
+    required this.number,
+    required this.onTap,
+  });
+
+  final int number;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 48,
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: _line, width: 0.7)),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        child: Row(
+          children: [
+            SizedBox(
+              width: 26,
+              child: Text(
+                '$number',
+                style: const TextStyle(color: _muted, fontSize: 10),
+              ),
+            ),
+            const Icon(Icons.add, size: 17, color: _muted),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -836,10 +1756,12 @@ class _TaskTile extends StatefulWidget {
     super.key,
     required this.number,
     required this.task,
+    required this.goals,
     required this.expanded,
     required this.onToggleExpanded,
     required this.onChanged,
     required this.onDetailsChanged,
+    required this.onGoalChanged,
     required this.onAddSubtask,
     required this.onUpdateSubtask,
     required this.onRemoveSubtask,
@@ -848,10 +1770,12 @@ class _TaskTile extends StatefulWidget {
 
   final int number;
   final GoodDayTask task;
+  final List<GoodDayGoal> goals;
   final bool expanded;
   final VoidCallback onToggleExpanded;
   final ValueChanged<bool?> onChanged;
   final Future<void> Function(String title, String notes) onDetailsChanged;
+  final Future<void> Function(String? goalId) onGoalChanged;
   final Future<void> Function(String title) onAddSubtask;
   final SubtaskUpdateCallback onUpdateSubtask;
   final Future<void> Function(String subtaskId) onRemoveSubtask;
@@ -952,6 +1876,7 @@ class _TaskTileState extends State<_TaskTile> {
 
   Future<void> _toggleExpanded() async {
     if (widget.expanded && !await _saveDetails()) return;
+    if (!mounted) return;
     widget.onToggleExpanded();
   }
 
@@ -985,6 +1910,10 @@ class _TaskTileState extends State<_TaskTile> {
   @override
   Widget build(BuildContext context) {
     final task = widget.task;
+    GoodDayGoal? selectedGoal;
+    for (final goal in widget.goals) {
+      if (goal.id == task.goalId) selectedGoal = goal;
+    }
     return TapRegion(
       onTapOutside: widget.expanded ? (_) => _toggleExpanded() : null,
       child: MouseRegion(
@@ -1081,6 +2010,8 @@ class _TaskTileState extends State<_TaskTile> {
                               ),
                             ),
                     ),
+                    if (!widget.expanded && selectedGoal != null)
+                      _GoalBadge(goal: selectedGoal),
                     IconButton(
                       key: Key('task-expand-${task.id}'),
                       onPressed: _toggleExpanded,
@@ -1134,6 +2065,12 @@ class _TaskTileState extends State<_TaskTile> {
                         ),
                       ),
                     ),
+                  ),
+                  _GoalPickerRow(
+                    key: Key('task-goal-${task.id}'),
+                    goals: widget.goals,
+                    selectedGoalId: task.goalId,
+                    onChanged: widget.onGoalChanged,
                   ),
                   for (final subtask in task.subtasks)
                     _EditableSubtaskRow(
@@ -1620,7 +2557,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             ),
                             const SizedBox(height: 10),
                             const Text(
-                              'Tasks、Daily 和 Archive 会保存在这里。选择空文件夹时会迁移现有数据，默认保留原位置。',
+                              'Tasks、Plans、Goals、Daily 和 Archive 会保存在这里。选择空文件夹时会迁移现有数据，默认保留原位置。',
                               style: TextStyle(
                                 color: _muted,
                                 fontSize: 10,

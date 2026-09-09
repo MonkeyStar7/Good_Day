@@ -29,6 +29,7 @@ class GoodDayTask {
     this.deletedAt,
     this.notes = '',
     this.subtasks = const [],
+    this.goalId,
   });
 
   final String id;
@@ -40,6 +41,7 @@ class GoodDayTask {
   final DateTime? deletedAt;
   final String notes;
   final List<GoodDaySubtask> subtasks;
+  final String? goalId;
 
   GoodDayTask setCompleted(bool completed, DateTime now) {
     return GoodDayTask(
@@ -52,6 +54,7 @@ class GoodDayTask {
       deletedAt: deletedAt,
       notes: notes,
       subtasks: subtasks,
+      goalId: goalId,
     );
   }
 
@@ -66,6 +69,7 @@ class GoodDayTask {
       deletedAt: deletedAt,
       notes: notes,
       subtasks: subtasks,
+      goalId: goalId,
     );
   }
 
@@ -80,6 +84,7 @@ class GoodDayTask {
       deletedAt: now,
       notes: notes,
       subtasks: subtasks,
+      goalId: goalId,
     );
   }
 
@@ -94,6 +99,22 @@ class GoodDayTask {
       deletedAt: deletedAt,
       notes: _singleLine(notes),
       subtasks: subtasks,
+      goalId: goalId,
+    );
+  }
+
+  GoodDayTask assignGoal(String? nextGoalId) {
+    return GoodDayTask(
+      id: id,
+      title: title,
+      createdAt: createdAt,
+      scheduledDate: scheduledDate,
+      isCompleted: isCompleted,
+      completedAt: completedAt,
+      deletedAt: deletedAt,
+      notes: notes,
+      subtasks: subtasks,
+      goalId: nextGoalId,
     );
   }
 
@@ -135,6 +156,7 @@ class GoodDayTask {
       deletedAt: deletedAt,
       notes: notes,
       subtasks: List.unmodifiable(nextSubtasks),
+      goalId: goalId,
     );
   }
 
@@ -154,6 +176,7 @@ class GoodDayTask {
       ..writeln('scheduled: ${dateKey(scheduledDate)}')
       ..writeln('completed: ${completedAt?.toIso8601String() ?? ''}')
       ..writeln('deleted: ${deletedAt?.toIso8601String() ?? ''}')
+      ..writeln('goal: ${goalId ?? ''}')
       ..writeln('---')
       ..writeln()
       ..writeln('# $safeTitle');
@@ -254,6 +277,7 @@ class GoodDayTask {
       }
     }
 
+    final goal = values['goal']?.trim();
     return GoodDayTask(
       id: id,
       title: lines[titleIndex].substring(2).trim(),
@@ -264,6 +288,7 @@ class GoodDayTask {
       deletedAt: DateTime.tryParse(values['deleted'] ?? ''),
       notes: notes,
       subtasks: List.unmodifiable(subtasks),
+      goalId: goal == null || goal.isEmpty ? null : goal,
     );
   }
 

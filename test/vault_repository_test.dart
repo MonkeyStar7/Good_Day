@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:good_day/data/vault_repository.dart';
+import 'package:good_day/models/good_day_plan.dart';
 import 'package:good_day/models/good_day_task.dart';
 
 void main() {
@@ -74,6 +75,65 @@ void main() {
     expect(daily, contains('  - [x] 第一个子任务'));
   });
 
+  test('goals, plans, and task goal labels round-trip through Markdown', () async {
+    var goal = await repository.addGoal(
+      name: '深度学习',
+      description: '完成 D2L 学习',
+      colorValue: 0xFFF2B544,
+    );
+    var plan = await repository.addPlan(
+      title: '完成第三章',
+      deadline: DateTime(2026, 9, 20),
+      goalId: goal.id,
+    );
+    var task = await repository.addTask('阅读第三章');
+    task = await repository.assignTaskGoal(task, goal.id);
+
+    goal = await repository.updateGoal(
+      goal,
+      name: '深度学习基础',
+      description: '完成 D2L 和练习',
+      colorValue: 0xFFDB8F5A,
+    );
+    plan = await repository.setPlanCompleted(plan, true);
+
+    final loadedGoal = (await repository.loadGoals()).single;
+    final loadedPlan = (await repository.loadPlans()).single;
+    final loadedTask = (await repository.loadTasks()).single;
+    final goalMarkdown = await File(
+      '${repository.goalsDirectory.path}${Platform.pathSeparator}${goal.id}.md',
+    ).readAsString();
+    final planMarkdown = await File(
+      '${repository.plansDirectory.path}${Platform.pathSeparator}${plan.id}.md',
+    ).readAsString();
+
+    expect(loadedGoal.name, '深度学习基础');
+    expect(loadedGoal.description, '完成 D2L 和练习');
+    expect(loadedGoal.colorValue, 0xFFDB8F5A);
+    expect(loadedPlan.title, '完成第三章');
+    expect(loadedPlan.goalId, goal.id);
+    expect(loadedPlan.isCompleted, isTrue);
+    expect(loadedTask.goalId, goal.id);
+    expect(goalMarkdown, contains('# 深度学习基础'));
+    expect(planMarkdown, contains('deadline: 2026-09-20'));
+    expect(planMarkdown, contains('goal: ${goal.id}'));
+  });
+
+  test('plan remaining percentage decreases toward its deadline', () {
+    final plan = GoodDayPlan(
+      id: 'plan_test',
+      title: '阶段计划',
+      createdAt: DateTime(2026, 9, 8),
+      deadline: DateTime(2026, 9, 17),
+    );
+
+    expect(plan.remainingFraction(DateTime(2026, 9, 8)), closeTo(1, 0.01));
+    expect(plan.remainingFraction(DateTime(2026, 9, 13)), closeTo(0.5, 0.06));
+    expect(plan.remainingFraction(DateTime(2026, 9, 18)), 0);
+    expect(plan.remainingDays(DateTime(2026, 9, 17, 23, 59)), 0);
+    expect(plan.remainingDays(DateTime(2026, 9, 18, 0, 1)), -1);
+  });
+
   test('unfinished tasks roll forward without changing the old Daily file', () async {
     await repository.addTask('跨天任务');
     final oldDaily = File(
@@ -108,6 +168,16 @@ void main() {
 
   test('copies Markdown data to an empty vault without deleting source', () async {
     final task = await repository.addTask('搬到新的数据文件夹');
+    final goal = await repository.addGoal(
+      name: '迁移目标',
+      description: '',
+      colorValue: 0xFFF2B544,
+    );
+    final plan = await repository.addPlan(
+      title: '迁移计划',
+      deadline: DateTime(2026, 9, 20),
+      goalId: goal.id,
+    );
     final target = await Directory.systemTemp.createTemp('good_day_target_');
     addTearDown(() async {
       if (await target.exists()) await target.delete(recursive: true);
@@ -118,6 +188,8 @@ void main() {
     final copiedTasks = await copiedRepository.loadTasks();
 
     expect(copiedTasks.single.title, task.title);
+    expect((await copiedRepository.loadGoals()).single.name, goal.name);
+    expect((await copiedRepository.loadPlans()).single.title, plan.title);
     expect(await repository.hasVaultData(), isTrue);
     expect(await copiedRepository.hasVaultData(), isTrue);
     expect(
