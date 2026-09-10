@@ -814,8 +814,8 @@ class _WindowBar extends StatelessWidget {
                         Image.asset(
                           'assets/branding/good_day_mark.png',
                           key: const Key('good-day-brand-mark'),
-                          width: 20,
-                          height: 20,
+                          width: 26,
+                          height: 26,
                           filterQuality: FilterQuality.high,
                         ),
                         const SizedBox(width: 8),
