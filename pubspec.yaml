@@ -54,6 +54,10 @@ dev_dependencies:
 # The following section is specific to Flutter packages.
 flutter:
 
+  assets:
+    - assets/branding/good_day_logo.png
+    - assets/branding/good_day_mark.png
+
   fonts:
     - family: Inter
       fonts:

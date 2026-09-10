@@ -808,14 +808,27 @@ class _WindowBar extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 14),
                   child: Align(
                     alignment: Alignment.centerLeft,
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                        color: Color(0xFF555A56),
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 1.6,
-                      ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Image.asset(
+                          'assets/branding/good_day_mark.png',
+                          key: const Key('good-day-brand-mark'),
+                          width: 20,
+                          height: 20,
+                          filterQuality: FilterQuality.high,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            color: Color(0xFF555A56),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.6,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),

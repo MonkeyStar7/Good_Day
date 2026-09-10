@@ -23,6 +23,7 @@ void main() {
     );
     await _flushMicrotasks(tester);
 
+    expect(find.byKey(const Key('good-day-brand-mark')), findsOneWidget);
     expect(find.byKey(const Key('add-task-button')), findsOneWidget);
 
     final addRow = find.byKey(const Key('add-task-button'));
