@@ -24,7 +24,7 @@ enum AppFont {
 
 enum AppAccent {
   graphite('graphite', '石墨', Color(0xFF343A36)),
-  forest('forest', '松绿', Color(0xFF3E6B57)),
+  forest('forest', '松绿', Color(0xFF365D46)),
   blueGrey('blue_grey', '雾蓝', Color(0xFF536D7A)),
   warmBrown('warm_brown', '暖棕', Color(0xFF766052));
 
@@ -36,14 +36,14 @@ enum AppAccent {
 
   static AppAccent fromKey(String? key) => values.firstWhere(
     (accent) => accent.key == key,
-    orElse: () => AppAccent.graphite,
+    orElse: () => AppAccent.forest,
   );
 }
 
 class AppSettings {
   const AppSettings({
     this.font = AppFont.appleStyle,
-    this.accent = AppAccent.graphite,
+    this.accent = AppAccent.forest,
   });
 
   final AppFont font;

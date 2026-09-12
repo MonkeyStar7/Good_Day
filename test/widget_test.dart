@@ -1,6 +1,9 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:good_day/data/vault_repository.dart';
 import 'package:good_day/desktop_experience.dart';
@@ -11,6 +14,151 @@ import 'package:good_day/models/good_day_task.dart';
 import 'package:good_day/settings/app_settings.dart';
 
 void main() {
+  for (final width in [400.0, 340.0]) {
+    testWidgets('quiet layout and inline editing at width $width', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = Size(width, 720);
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+      const capture = bool.fromEnvironment('CAPTURE_UI');
+      if (capture) {
+        await tester.runAsync(() async {
+          final inter = FontLoader('Inter')
+            ..addFont(rootBundle.load('assets/fonts/InterVariable.ttf'));
+          await inter.load();
+          final icons = File(
+            'E:/Dev/flutter/bin/cache/artifacts/material_fonts/materialicons-regular.otf',
+          );
+          if (await icons.exists()) {
+            final loader = FontLoader('MaterialIcons')
+              ..addFont(
+                icons.readAsBytes().then(
+                  (bytes) => ByteData.sublistView(bytes),
+                ),
+              );
+            await loader.load();
+          }
+          final chinese = File('C:/Windows/Fonts/msyh.ttc');
+          if (await chinese.exists()) {
+            final font = FontLoader('Microsoft YaHei UI')
+              ..addFont(
+                chinese.readAsBytes().then(
+                  (bytes) => ByteData.sublistView(bytes),
+                ),
+              );
+            await font.load();
+          }
+        });
+      }
+      final repository = _MemoryRepository();
+      final goal = await repository.addGoal(
+        name: '专业学习',
+        description: '打好数学与机器学习基础',
+        colorValue: 0xFF789A7A,
+      );
+      await repository.addGoal(
+        name: '语言学习',
+        description: '每天积累一点表达能力',
+        colorValue: 0xFF66899B,
+      );
+      await repository.addGoal(
+        name: '阅读与生活',
+        description: '留一些时间给自己',
+        colorValue: 0xFFF2B544,
+      );
+      var task = await repository.addTask('学习线性代数 · 第三章');
+      task = await repository.assignTaskGoal(task, goal.id);
+      task = await repository.addSubtask(task, '阅读课程笔记');
+      task = await repository.addSubtask(task, '完成课后练习');
+      await repository.addTask('复习英语单词');
+      await repository.setCompleted(await repository.addTask('阅读 20 页'), true);
+      final plan = await repository.addPlan(
+        title: '完成机器学习基础课程',
+        deadline: DateTime.now().add(const Duration(days: 20)),
+        goalId: goal.id,
+      );
+      await repository.addPlan(
+        title: '读完《深度学习》',
+        deadline: DateTime.now().add(const Duration(days: 12)),
+      );
+      await repository.deleteTask(await repository.addTask('整理本周错题'));
+      final boundaryKey = GlobalKey();
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundaryKey,
+          child: GoodDayApp(
+            repository: repository,
+            settingsController: AppSettingsController.inMemory(),
+            desktopExperience: _FakeDesktopExperience(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 80)),
+      );
+      await tester.pumpAndSettle();
+      Future<void> inspect(String name) async {
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull, reason: '$name at $width');
+        if (capture) {
+          await tester.runAsync(() async {
+            final boundary =
+                boundaryKey.currentContext!.findRenderObject()!
+                    as RenderRepaintBoundary;
+            final image = await boundary.toImage(pixelRatio: 2);
+            final bytes = await image.toByteData(
+              format: ui.ImageByteFormat.png,
+            );
+            final directory = Directory('build/ui-preview')
+              ..createSync(recursive: true);
+            await File('${directory.path}/${width.toInt()}-$name.png')
+                .writeAsBytes(bytes!.buffer.asUint8List());
+            image.dispose();
+          });
+        }
+      }
+
+      await inspect('01-today');
+      await tester.tap(find.byKey(Key('task-content-${task.id}')));
+      await inspect('04-task-detail');
+      await tester.tap(find.byKey(const Key('nav-plans')));
+      await inspect('02-plans');
+      await tester.tap(find.byKey(Key('edit-plan-${plan.id}')));
+      await inspect('05-plan-detail');
+      await tester.tap(find.byKey(const Key('nav-goals')));
+      await inspect('03-goals');
+      await tester.tap(find.byKey(Key('edit-goal-${goal.id}')));
+      await inspect('06-goal-detail');
+      await tester.tap(find.byKey(Key('delete-goal-${goal.id}')));
+      await inspect('09-delete-confirm');
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('settings-button')));
+      await inspect('07-settings');
+      await tester.tap(find.byKey(const Key('font-picker-button')));
+      await inspect('10-font-picker');
+      await tester.tap(find.byKey(const Key('font-picker-button')));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('trash-button')),
+        160,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('trash-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('trash-button')));
+      await tester.pumpAndSettle();
+      expect(find.byType(TrashPage), findsOneWidget);
+      await inspect('08-trash');
+    }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+  }
+
   testWidgets('adds, completes, and removes a task from the UI', (
     tester,
   ) async {
@@ -45,6 +193,9 @@ void main() {
     await _flushMicrotasks(tester);
     expect(tester.widget<Checkbox>(checkbox).value, isTrue);
 
+    expect(find.byKey(Key('delete-task-${task.id}')), findsNothing);
+    await tester.tap(find.byKey(Key('task-content-${task.id}')));
+    await _flushMicrotasks(tester);
     await tester.tap(find.byKey(Key('delete-task-${task.id}')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('confirm-delete-button')));
@@ -177,10 +328,9 @@ void main() {
     await _flushMicrotasks(tester);
     expect(find.text('设置'), findsWidgets);
     expect(find.byKey(const Key('choose-vault-button')), findsOneWidget);
-    expect(find.byKey(const Key('vault-path')), findsOneWidget);
     expect(
       tester
-          .widget<Checkbox>(find.byKey(const Key('launch-at-startup-checkbox')))
+          .widget<Switch>(find.byKey(const Key('launch-at-startup-checkbox')))
           .value,
       isFalse,
     );
@@ -190,11 +340,14 @@ void main() {
     expect(desktopExperience.launchAtStartup, isTrue);
     expect(
       tester
-          .widget<Checkbox>(find.byKey(const Key('launch-at-startup-checkbox')))
+          .widget<Switch>(find.byKey(const Key('launch-at-startup-checkbox')))
           .value,
       isTrue,
     );
 
+    await tester.ensureVisible(find.byKey(const Key('font-picker-button')));
+    await tester.tap(find.byKey(const Key('font-picker-button')));
+    await _flushMicrotasks(tester);
     await tester.scrollUntilVisible(
       find.byKey(const Key('font-dengxian')),
       280,
@@ -368,6 +521,14 @@ void main() {
     expect(repository.goals, isEmpty);
 
     await tester.tap(find.byKey(const Key('settings-button')));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('trash-button')),
+      200,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('trash-button')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('trash-button')));
     await tester.pumpAndSettle();

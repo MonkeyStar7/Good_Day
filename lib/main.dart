@@ -16,9 +16,11 @@ import 'models/good_day_task.dart';
 import 'settings/app_settings.dart';
 import 'settings/vault_location_store.dart';
 
-const _ink = Color(0xFF202421);
-const _muted = Color(0xFF707571);
-const _line = Color(0x4D737873);
+const _ink = Color(0xFF242C27);
+const _muted = Color(0xFF626C64);
+const _line = Color(0xFFDEE2DA);
+const _paper = Color(0xF5F5F5F0);
+const _expandedPaper = Color(0xFFEDF1EB);
 const _windowSize = Size(400, 720);
 const _goalPalette = <Color>[
   Color(0xFFF2B544),
@@ -117,7 +119,61 @@ class GoodDayApp extends StatelessWidget {
             colorScheme: ColorScheme.fromSeed(
               seedColor: settings.accent.color,
               primary: settings.accent.color,
-              surface: const Color(0xFFF1F2F0),
+              surface: const Color(0xFFF5F5F0),
+            ),
+            textButtonTheme: TextButtonThemeData(
+              style: TextButton.styleFrom(
+                minimumSize: const Size(32, 36),
+                shape: const RoundedRectangleBorder(),
+                textStyle: TextStyle(
+                  fontSize: 12,
+                  fontFamily: settings.font.family,
+                  fontFamilyFallback: const [
+                    'Microsoft YaHei UI',
+                    'Microsoft YaHei',
+                    'Segoe UI',
+                  ],
+                ),
+              ),
+            ),
+            filledButtonTheme: FilledButtonThemeData(
+              style: FilledButton.styleFrom(
+                shape: const RoundedRectangleBorder(),
+                minimumSize: const Size(72, 36),
+                textStyle: TextStyle(
+                  fontSize: 12,
+                  fontFamily: settings.font.family,
+                  fontFamilyFallback: const [
+                    'Microsoft YaHei UI',
+                    'Microsoft YaHei',
+                  ],
+                ),
+              ),
+            ),
+            dialogTheme: DialogThemeData(
+              backgroundColor: const Color(0xFFF5F5F0),
+              surfaceTintColor: Colors.transparent,
+              shape: const RoundedRectangleBorder(),
+              titleTextStyle: TextStyle(
+                fontFamily: settings.font.family,
+                fontFamilyFallback: const [
+                  'Microsoft YaHei UI',
+                  'Microsoft YaHei',
+                ],
+                color: _ink,
+                fontSize: 18,
+                fontWeight: FontWeight.w500,
+              ),
+              contentTextStyle: TextStyle(
+                fontFamily: settings.font.family,
+                fontFamilyFallback: const [
+                  'Microsoft YaHei UI',
+                  'Microsoft YaHei',
+                ],
+                color: _muted,
+                fontSize: 14,
+                height: 1.6,
+              ),
             ),
             checkboxTheme: CheckboxThemeData(
               shape: const CircleBorder(),
@@ -403,9 +459,14 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  void _cycleView() {
+  void _cycleView() => _selectView(
+    _HomeView.values[(_view.index + 1) % _HomeView.values.length],
+  );
+
+  void _selectView(_HomeView view) {
+    if (_view == view) return;
     setState(() {
-      _view = _HomeView.values[(_view.index + 1) % _HomeView.values.length];
+      _view = view;
       _expandedTaskId = null;
       _expandedPlanId = null;
       _expandedGoalId = null;
@@ -568,7 +629,7 @@ class _HomePageState extends State<HomePage> {
       backgroundColor: Colors.transparent,
       body: Container(
         decoration: BoxDecoration(
-          color: const Color(0xE6F2F3F1),
+          color: _paper,
           border: Border.all(color: const Color(0x66FFFFFF)),
         ),
         child: Column(
@@ -581,7 +642,7 @@ class _HomePageState extends State<HomePage> {
             ),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -593,21 +654,9 @@ class _HomePageState extends State<HomePage> {
                       planCount: _plans.length,
                       goalCount: _goals.length,
                       onTap: _cycleView,
+                      onSelect: _selectView,
                     ),
                     const SizedBox(height: 24),
-                    _SectionLabel(
-                      label: switch (_view) {
-                        _HomeView.today => '任务',
-                        _HomeView.plans => '计划',
-                        _HomeView.goals => '目标',
-                      },
-                      itemCount: switch (_view) {
-                        _HomeView.today => _tasks.length,
-                        _HomeView.plans => _plans.length,
-                        _HomeView.goals => _goals.length,
-                      },
-                    ),
-                    const SizedBox(height: 8),
                     Expanded(child: _buildCurrentArea()),
                     const Divider(height: 1, thickness: 0.7, color: _line),
                     const SizedBox(height: 12),
@@ -643,8 +692,9 @@ class _HomePageState extends State<HomePage> {
     return Scrollbar(
       thickness: 2,
       child: ListView.builder(
+        key: const PageStorageKey('today-list'),
         padding: EdgeInsets.zero,
-        itemCount: _tasks.length + 5,
+        itemCount: _tasks.length + 4,
         itemBuilder: (context, index) {
           if (index < _tasks.length) {
             final task = _tasks[index];
@@ -695,6 +745,7 @@ class _HomePageState extends State<HomePage> {
     return Scrollbar(
       thickness: 2,
       child: ListView.builder(
+        key: const PageStorageKey('plans-list'),
         padding: EdgeInsets.zero,
         itemCount: _plans.length + 4,
         itemBuilder: (context, index) {
@@ -733,6 +784,7 @@ class _HomePageState extends State<HomePage> {
     return Scrollbar(
       thickness: 2,
       child: ListView.builder(
+        key: const PageStorageKey('goals-list'),
         padding: EdgeInsets.zero,
         itemCount: _goals.length + 4,
         itemBuilder: (context, index) {
@@ -785,9 +837,9 @@ class _WindowBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 42,
+      height: 44,
       decoration: const BoxDecoration(
-        color: Color(0x14000000),
+        color: Colors.transparent,
         border: Border(bottom: BorderSide(color: _line, width: 0.7)),
       ),
       child: Row(
@@ -823,9 +875,9 @@ class _WindowBar extends StatelessWidget {
                           title,
                           style: const TextStyle(
                             color: Color(0xFF555A56),
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 1.6,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 1.4,
                           ),
                         ),
                       ],
@@ -870,8 +922,8 @@ class _WindowButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 42,
-      height: 42,
+      width: 40,
+      height: 44,
       child: IconButton(
         onPressed: onPressed,
         tooltip: tooltip,
@@ -903,8 +955,8 @@ class _SettingsButton extends StatelessWidget {
           onTap: onPressed,
           hoverColor: const Color(0x16000000),
           child: const SizedBox(
-            width: 42,
-            height: 42,
+            width: 40,
+            height: 44,
             child: Center(
               child: CustomPaint(
                 size: Size.square(18),
@@ -928,34 +980,24 @@ class _GearPainter extends CustomPainter {
     final center = Offset(size.width / 2, size.height / 2);
     final paint = Paint()
       ..color = color
-      ..style = PaintingStyle.fill
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.3
+      ..strokeJoin = StrokeJoin.round
       ..isAntiAlias = true;
-
-    canvas.save();
-    canvas.translate(center.dx, center.dy);
-    for (var index = 0; index < 8; index++) {
-      canvas.save();
-      canvas.rotate(index * math.pi / 4);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromCenter(
-            center: const Offset(0, -6.6),
-            width: 3.1,
-            height: 4.2,
-          ),
-          const Radius.circular(0.6),
-        ),
-        paint,
-      );
-      canvas.restore();
+    final outline = Path();
+    for (var i = 0; i < 32; i++) {
+      final angle = i * math.pi / 16 - math.pi / 2;
+      final radius = (i % 4 == 1 || i % 4 == 2) ? 8.0 : 6.4;
+      final p = center + Offset(math.cos(angle), math.sin(angle)) * radius;
+      if (i == 0) {
+        outline.moveTo(p.dx, p.dy);
+      } else {
+        outline.lineTo(p.dx, p.dy);
+      }
     }
-
-    final ring = Path()
-      ..fillType = PathFillType.evenOdd
-      ..addOval(Rect.fromCircle(center: Offset.zero, radius: 5.8))
-      ..addOval(Rect.fromCircle(center: Offset.zero, radius: 2.25));
-    canvas.drawPath(ring, paint);
-    canvas.restore();
+    outline.close();
+    canvas.drawPath(outline, paint);
+    canvas.drawCircle(center, 2.5, paint);
   }
 
   @override
@@ -971,94 +1013,116 @@ class _ModeHeader extends StatelessWidget {
     required this.planCount,
     required this.goalCount,
     required this.onTap,
+    required this.onSelect,
   });
 
   final _HomeView mode;
   final DateTime date;
-  final int completed;
-  final int total;
-  final int planCount;
-  final int goalCount;
+  final int completed, total, planCount, goalCount;
   final VoidCallback onTap;
+  final ValueChanged<_HomeView> onSelect;
+
+  static String label(_HomeView view) => switch (view) {
+    _HomeView.today => '今日',
+    _HomeView.plans => '计划',
+    _HomeView.goals => '目标',
+  };
 
   @override
   Widget build(BuildContext context) {
     const weekdays = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
-    final progress = total == 0 ? 0.0 : completed / total;
-    final title = switch (mode) {
-      _HomeView.today => '今天',
-      _HomeView.plans => '计划',
-      _HomeView.goals => '目标',
-    };
     final count = switch (mode) {
       _HomeView.today => '$completed / $total 完成',
-      _HomeView.plans => '$planCount 项',
-      _HomeView.goals => '$goalCount 个',
+      _HomeView.plans => '$planCount 项计划',
+      _HomeView.goals => '$goalCount 个目标',
     };
-    final subtitle = switch (mode) {
-      _HomeView.today =>
-        '${date.year}年${date.month}月${date.day}日  ${weekdays[date.weekday - 1]}',
-      _HomeView.plans => '每一项计划都有明确的截止时间',
-      _HomeView.goals => '用名称、描述和颜色标记长期方向',
-    };
-    return InkWell(
-      key: const Key('home-mode-switch'),
-      onTap: onTap,
-      hoverColor: const Color(0x0A000000),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: Row(
-                    children: [
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          color: _ink,
-                          fontSize: 30,
-                          height: 1,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: -0.8,
-                        ),
+            Expanded(
+              child: InkWell(
+                key: const Key('home-mode-switch'),
+                onTap: onTap,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label(mode),
+                      style: const TextStyle(
+                        color: _ink,
+                        fontSize: 30,
+                        height: 1.3,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: -0.6,
                       ),
-                      const SizedBox(width: 5),
-                      const Padding(
-                        padding: EdgeInsets.only(top: 5),
-                        child: Icon(
-                          Icons.chevron_right,
-                          size: 17,
-                          color: _muted,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Icon(Icons.chevron_right, size: 18, color: _muted),
+                  ],
                 ),
-                Text(
-                  count,
-                  style: const TextStyle(color: _muted, fontSize: 11),
-                ),
-              ],
+              ),
             ),
-            const SizedBox(height: 8),
-            Text(subtitle, style: const TextStyle(color: _muted, fontSize: 12)),
-            const SizedBox(height: 16),
-            if (mode == _HomeView.today)
-              LinearProgressIndicator(
-                value: progress,
-                minHeight: 2,
-                color: Theme.of(context).colorScheme.primary,
-                backgroundColor: const Color(0x33707571),
-              )
-            else
-              const Divider(height: 2, thickness: 0.7, color: _line),
+            Text(count, style: const TextStyle(color: _muted, fontSize: 12)),
           ],
         ),
-      ),
+        if (mode == _HomeView.today) ...[
+          const SizedBox(height: 6),
+          Text(
+            '${date.month}月${date.day}日  ${weekdays[date.weekday - 1]}',
+            style: const TextStyle(color: _muted, fontSize: 12),
+          ),
+        ],
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            for (final view in _HomeView.values) ...[
+              if (view.index != 0)
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  child: Text('·', style: TextStyle(color: _muted)),
+                ),
+              Semantics(
+                selected: mode == view,
+                button: true,
+                child: InkWell(
+                  key: Key('nav-${view.name}'),
+                  onTap: () => onSelect(view),
+                  child: Container(
+                    alignment: Alignment.center,
+                    constraints: const BoxConstraints(
+                      minHeight: 32,
+                      minWidth: 36,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(
+                          color: mode == view
+                              ? Theme.of(context).colorScheme.primary
+                              : Colors.transparent,
+                          width: 1.5,
+                        ),
+                      ),
+                    ),
+                    child: Text(
+                      label(view),
+                      style: TextStyle(
+                        color: mode == view ? _ink : _muted,
+                        fontSize: 12,
+                        fontWeight: mode == view
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        const Divider(height: 1, thickness: 0.7, color: _line),
+      ],
     );
   }
 }
@@ -1096,7 +1160,7 @@ class _AddTaskRow extends StatelessWidget {
                   width: 26,
                   child: Text(
                     '$number',
-                    style: const TextStyle(color: _muted, fontSize: 10),
+                    style: const TextStyle(color: _muted, fontSize: 12),
                   ),
                 ),
                 Expanded(
@@ -1118,7 +1182,7 @@ class _AddTaskRow extends StatelessWidget {
                           onAdd();
                         }
                       },
-                      style: const TextStyle(color: _ink, fontSize: 13),
+                      style: const TextStyle(color: _ink, fontSize: 14),
                       decoration: const InputDecoration(
                         hintText: '输入任务内容',
                         hintStyle: TextStyle(color: Color(0xFF929692)),
@@ -1140,7 +1204,7 @@ class _AddTaskRow extends StatelessWidget {
                     width: 26,
                     child: Text(
                       '$number',
-                      style: const TextStyle(color: _muted, fontSize: 10),
+                      style: const TextStyle(color: _muted, fontSize: 12),
                     ),
                   ),
                   const SizedBox(
@@ -1161,56 +1225,15 @@ class _AddTaskRow extends StatelessWidget {
 
 class _BlankTaskRow extends StatelessWidget {
   const _BlankTaskRow({required this.number});
-
   final int number;
-
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 48,
-      decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: Color(0x26737873), width: 0.7),
-        ),
-      ),
-      alignment: Alignment.centerLeft,
-      child: SizedBox(
-        width: 26,
-        child: Text(
-          '$number',
-          style: const TextStyle(color: Color(0x66707571), fontSize: 10),
-        ),
-      ),
-    );
-  }
-}
-
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel({required this.label, required this.itemCount});
-
-  final String label;
-  final int itemCount;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            color: _ink,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const Spacer(),
-        Text(
-          '$itemCount 项',
-          style: const TextStyle(color: _muted, fontSize: 11),
-        ),
-      ],
-    );
-  }
+  Widget build(BuildContext context) => const SizedBox(
+    height: 56,
+    child: Align(
+      alignment: Alignment.bottomCenter,
+      child: Divider(height: 1, thickness: 0.5, color: _line),
+    ),
+  );
 }
 
 class _GoalBadge extends StatelessWidget {
@@ -1221,18 +1244,25 @@ class _GoalBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 82),
+      constraints: const BoxConstraints(maxWidth: 180),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(width: 6, height: 6, color: Color(goal.colorValue)),
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Color(goal.colorValue),
+            ),
+          ),
           const SizedBox(width: 5),
           Flexible(
             child: Text(
               goal.name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: _muted, fontSize: 9),
+              style: const TextStyle(color: _muted, fontSize: 11),
             ),
           ),
         ],
@@ -1264,12 +1294,12 @@ class _GoalPickerRow extends StatelessWidget {
       child: PopupMenuButton<String>(
         tooltip: '选择目标',
         onSelected: (value) => onChanged(value.isEmpty ? null : value),
-        color: const Color(0xFFF1F2F0),
+        color: const Color(0xFFF5F5F0),
         shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
         itemBuilder: (context) => [
           const PopupMenuItem<String>(
             value: '',
-            child: Text('无目标', style: TextStyle(fontSize: 11)),
+            child: Text('无目标', style: TextStyle(fontSize: 12)),
           ),
           for (final goal in goals)
             PopupMenuItem<String>(
@@ -1282,7 +1312,7 @@ class _GoalPickerRow extends StatelessWidget {
                   Flexible(
                     child: Text(
                       goal.name,
-                      style: const TextStyle(fontSize: 11),
+                      style: const TextStyle(fontSize: 12),
                     ),
                   ),
                 ],
@@ -1293,10 +1323,10 @@ class _GoalPickerRow extends StatelessWidget {
           height: 30,
           child: Row(
             children: [
-              const Text('所属目标', style: TextStyle(color: _muted, fontSize: 10)),
+              const Text('所属目标', style: TextStyle(color: _muted, fontSize: 12)),
               const Spacer(),
               if (selected == null)
-                const Text('无', style: TextStyle(color: _muted, fontSize: 10))
+                const Text('无', style: TextStyle(color: _muted, fontSize: 12))
               else
                 _GoalBadge(goal: selected),
               const SizedBox(width: 3),
@@ -1428,28 +1458,21 @@ class _GoalTileState extends State<_GoalTile> {
     return TapRegion(
       onTapOutside: widget.expanded ? (_) => _toggleExpanded() : null,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 7),
+        padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          color: widget.expanded ? const Color(0x1AFFFFFF) : Colors.transparent,
+          color: widget.expanded ? _expandedPaper : Colors.transparent,
           border: const Border(bottom: BorderSide(color: _line, width: 0.7)),
         ),
         child: Column(
           children: [
             Row(
               children: [
-                SizedBox(
-                  width: 26,
-                  child: Text(
-                    '${widget.number}',
-                    style: const TextStyle(color: _muted, fontSize: 10),
-                  ),
-                ),
                 Container(
-                  width: 9,
-                  height: 9,
+                  width: 3,
+                  height: 28,
                   color: Color(widget.expanded ? _colorValue : goal.colorValue),
                 ),
-                const SizedBox(width: 11),
+                const SizedBox(width: 16),
                 Expanded(
                   child: widget.expanded
                       ? TextField(
@@ -1461,8 +1484,8 @@ class _GoalTileState extends State<_GoalTile> {
                           onSubmitted: (_) => _saveDetails(),
                           style: const TextStyle(
                             color: _ink,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
                           ),
                           decoration: InputDecoration(
                             border: InputBorder.none,
@@ -1487,7 +1510,7 @@ class _GoalTileState extends State<_GoalTile> {
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 color: _ink,
-                                fontSize: 13,
+                                fontSize: 14,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -1504,23 +1527,24 @@ class _GoalTileState extends State<_GoalTile> {
                   icon: Icon(
                     widget.expanded
                         ? Icons.keyboard_arrow_up
-                        : Icons.keyboard_arrow_down,
+                        : Icons.chevron_right,
                   ),
                 ),
-                IconButton(
-                  key: Key('delete-goal-${goal.id}'),
-                  onPressed: widget.onDelete,
-                  tooltip: '删除目标',
-                  iconSize: 14,
-                  color: _muted,
-                  visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.close),
-                ),
+                if (widget.expanded)
+                  IconButton(
+                    key: Key('delete-goal-${goal.id}'),
+                    onPressed: widget.onDelete,
+                    tooltip: '删除目标',
+                    iconSize: 14,
+                    color: _muted,
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.delete_outline),
+                  ),
               ],
             ),
             if (widget.expanded) ...[
               Padding(
-                padding: const EdgeInsets.fromLTRB(46, 2, 38, 7),
+                padding: const EdgeInsets.fromLTRB(19, 2, 38, 7),
                 child: TextField(
                   key: Key('edit-goal-description-${goal.id}'),
                   controller: _descriptionController,
@@ -1528,7 +1552,7 @@ class _GoalTileState extends State<_GoalTile> {
                   maxLines: 1,
                   onChanged: (_) => _scheduleSave(),
                   onSubmitted: (_) => _saveDetails(),
-                  style: const TextStyle(color: _muted, fontSize: 10),
+                  style: const TextStyle(color: _muted, fontSize: 12),
                   decoration: const InputDecoration(
                     hintText: '简短描述（可选）',
                     isDense: true,
@@ -1537,8 +1561,10 @@ class _GoalTileState extends State<_GoalTile> {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(46, 1, 38, 4),
-                child: Row(
+                padding: const EdgeInsets.fromLTRB(19, 1, 0, 4),
+                child: Wrap(
+                  spacing: 4,
+                  runSpacing: 8,
                   children: [
                     for (
                       var index = 0;
@@ -1571,7 +1597,7 @@ class _GoalTileState extends State<_GoalTile> {
                       if (index != _goalPalette.length - 1)
                         const SizedBox(width: 9),
                     ],
-                    const Spacer(),
+                    const SizedBox(width: 8),
                     if (_saving || _saved || _nameError)
                       Text(
                         _nameError
@@ -1581,7 +1607,7 @@ class _GoalTileState extends State<_GoalTile> {
                             : '已保存',
                         style: TextStyle(
                           color: _nameError ? const Color(0xFF8B3A32) : _muted,
-                          fontSize: 9,
+                          fontSize: 12,
                         ),
                       ),
                   ],
@@ -1589,7 +1615,7 @@ class _GoalTileState extends State<_GoalTile> {
               ),
             ] else if (goal.description.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.fromLTRB(46, 0, 38, 3),
+                padding: const EdgeInsets.fromLTRB(19, 0, 38, 3),
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
@@ -1598,7 +1624,7 @@ class _GoalTileState extends State<_GoalTile> {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: _muted,
-                      fontSize: 10,
+                      fontSize: 12,
                       height: 1.35,
                     ),
                   ),
@@ -1698,7 +1724,7 @@ class _GoalComposerState extends State<_GoalComposer> {
                   width: 26,
                   child: Text(
                     '${widget.number}',
-                    style: const TextStyle(color: _muted, fontSize: 10),
+                    style: const TextStyle(color: _muted, fontSize: 12),
                   ),
                 ),
                 Expanded(
@@ -1707,7 +1733,7 @@ class _GoalComposerState extends State<_GoalComposer> {
                     controller: _nameController,
                     focusNode: _focusNode,
                     textInputAction: TextInputAction.next,
-                    style: const TextStyle(color: _ink, fontSize: 13),
+                    style: const TextStyle(color: _ink, fontSize: 14),
                     decoration: const InputDecoration(
                       hintText: '目标名称',
                       border: InputBorder.none,
@@ -1726,7 +1752,7 @@ class _GoalComposerState extends State<_GoalComposer> {
                 maxLines: 1,
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _finish(),
-                style: const TextStyle(color: _muted, fontSize: 10),
+                style: const TextStyle(color: _muted, fontSize: 12),
                 decoration: const InputDecoration(
                   hintText: '简短描述（可选）',
                   border: InputBorder.none,
@@ -1935,9 +1961,9 @@ class _PlanTileState extends State<_PlanTile> {
           ? (_) => _toggleExpanded()
           : null,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 7),
+        padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          color: widget.expanded ? const Color(0x1AFFFFFF) : Colors.transparent,
+          color: widget.expanded ? _expandedPaper : Colors.transparent,
           border: const Border(bottom: BorderSide(color: _line, width: 0.7)),
         ),
         child: Column(
@@ -1948,7 +1974,7 @@ class _PlanTileState extends State<_PlanTile> {
                   width: 26,
                   child: Text(
                     '${widget.number}',
-                    style: const TextStyle(color: _muted, fontSize: 10),
+                    style: const TextStyle(color: _muted, fontSize: 12),
                   ),
                 ),
                 SizedBox(
@@ -1972,10 +1998,8 @@ class _PlanTileState extends State<_PlanTile> {
                           onChanged: (_) => _scheduleSave(),
                           onSubmitted: (_) => _saveDetails(),
                           style: TextStyle(
-                            color: plan.isCompleted
-                                ? const Color(0xFF858A86)
-                                : _ink,
-                            fontSize: 13,
+                            color: plan.isCompleted ? _muted : _ink,
+                            fontSize: 14,
                             decoration: plan.isCompleted
                                 ? TextDecoration.lineThrough
                                 : TextDecoration.none,
@@ -2002,10 +2026,8 @@ class _PlanTileState extends State<_PlanTile> {
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                color: plan.isCompleted
-                                    ? const Color(0xFF858A86)
-                                    : _ink,
-                                fontSize: 13,
+                                color: plan.isCompleted ? _muted : _ink,
+                                fontSize: 14,
                                 decoration: plan.isCompleted
                                     ? TextDecoration.lineThrough
                                     : TextDecoration.none,
@@ -2014,8 +2036,7 @@ class _PlanTileState extends State<_PlanTile> {
                           ),
                         ),
                 ),
-                if (!widget.expanded && widget.goal != null)
-                  _GoalBadge(goal: widget.goal!),
+
                 IconButton(
                   key: Key('plan-expand-${plan.id}'),
                   onPressed: _toggleExpanded,
@@ -2026,30 +2047,42 @@ class _PlanTileState extends State<_PlanTile> {
                   icon: Icon(
                     widget.expanded
                         ? Icons.keyboard_arrow_up
-                        : Icons.keyboard_arrow_down,
+                        : Icons.chevron_right,
                   ),
                 ),
-                IconButton(
-                  key: Key('delete-plan-${plan.id}'),
-                  onPressed: widget.onDelete,
-                  tooltip: '删除计划',
-                  iconSize: 14,
-                  color: _muted,
-                  visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.close),
-                ),
+                if (widget.expanded)
+                  IconButton(
+                    key: Key('delete-plan-${plan.id}'),
+                    onPressed: widget.onDelete,
+                    tooltip: '删除计划',
+                    iconSize: 14,
+                    color: _muted,
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.delete_outline),
+                  ),
               ],
             ),
+            if (!widget.expanded && widget.goal != null)
+              Padding(
+                padding: const EdgeInsets.only(left: 60, bottom: 6),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: _GoalBadge(goal: widget.goal!),
+                ),
+              ),
             if (widget.expanded) ...[
               Padding(
-                padding: const EdgeInsets.fromLTRB(60, 3, 38, 3),
-                child: Row(
+                padding: const EdgeInsets.fromLTRB(60, 3, 0, 3),
+                child: Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 4,
+                  runSpacing: 6,
                   children: [
                     Text(
                       '${_deadline.year}.${_deadline.month}.${_deadline.day}',
-                      style: const TextStyle(color: _muted, fontSize: 10),
+                      style: const TextStyle(color: _muted, fontSize: 12),
                     ),
-                    const Spacer(),
+                    const SizedBox(width: 8),
                     _ComposerChoice(label: '明天', onTap: () => _setDeadline(1)),
                     _ComposerChoice(label: '7天后', onTap: () => _setDeadline(7)),
                     _ComposerChoice(
@@ -2063,11 +2096,14 @@ class _PlanTileState extends State<_PlanTile> {
               if (widget.goals.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(60, 5, 38, 3),
-                  child: Row(
+                  child: Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 4,
+                    runSpacing: 6,
                     children: [
                       const Text(
                         '所属目标',
-                        style: TextStyle(color: _muted, fontSize: 10),
+                        style: TextStyle(color: _muted, fontSize: 12),
                       ),
                       const SizedBox(width: 10),
                       InkWell(
@@ -2112,7 +2148,7 @@ class _PlanTileState extends State<_PlanTile> {
                           ),
                         ),
                       ],
-                      const Spacer(),
+                      const SizedBox(width: 8),
                       if (_saving || _saved || _titleError)
                         Text(
                           _titleError
@@ -2124,7 +2160,7 @@ class _PlanTileState extends State<_PlanTile> {
                             color: _titleError
                                 ? const Color(0xFF8B3A32)
                                 : _muted,
-                            fontSize: 9,
+                            fontSize: 12,
                           ),
                         ),
                     ],
@@ -2135,17 +2171,23 @@ class _PlanTileState extends State<_PlanTile> {
               padding: const EdgeInsets.fromLTRB(60, 1, 0, 0),
               child: Row(
                 children: [
-                  Text(
-                    plan.isCompleted
-                        ? '已完成'
-                        : '截止 ${plan.deadline.month}月${plan.deadline.day}日 · $timing',
-                    style: const TextStyle(color: _muted, fontSize: 9),
+                  Expanded(
+                    child: Text(
+                      plan.isCompleted
+                          ? '已完成'
+                          : '截止 ${plan.deadline.month}月${plan.deadline.day}日 · $timing',
+                      style: const TextStyle(
+                        color: _muted,
+                        fontSize: 12,
+                        height: 1.5,
+                      ),
+                    ),
                   ),
-                  const Spacer(),
+                  const SizedBox(width: 8),
                   if (!plan.isCompleted)
                     Text(
                       '$percent%',
-                      style: const TextStyle(color: _muted, fontSize: 9),
+                      style: const TextStyle(color: _muted, fontSize: 11),
                     ),
                 ],
               ),
@@ -2289,7 +2331,7 @@ class _PlanComposerState extends State<_PlanComposer> {
                   width: 26,
                   child: Text(
                     '${widget.number}',
-                    style: const TextStyle(color: _muted, fontSize: 10),
+                    style: const TextStyle(color: _muted, fontSize: 12),
                   ),
                 ),
                 Expanded(
@@ -2297,7 +2339,7 @@ class _PlanComposerState extends State<_PlanComposer> {
                     key: const Key('new-plan-title'),
                     controller: _controller,
                     focusNode: _focusNode,
-                    style: const TextStyle(color: _ink, fontSize: 13),
+                    style: const TextStyle(color: _ink, fontSize: 14),
                     decoration: const InputDecoration(
                       hintText: '计划名称',
                       border: InputBorder.none,
@@ -2310,7 +2352,10 @@ class _PlanComposerState extends State<_PlanComposer> {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(26, 6, 0, 3),
-              child: Row(
+              child: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 4,
+                runSpacing: 6,
                 children: [
                   Text(
                     _deadline == null
@@ -2318,10 +2363,10 @@ class _PlanComposerState extends State<_PlanComposer> {
                         : '${_deadline!.year}.${_deadline!.month}.${_deadline!.day}',
                     style: TextStyle(
                       color: _needsDeadline ? const Color(0xFF8B3A32) : _muted,
-                      fontSize: 10,
+                      fontSize: 12,
                     ),
                   ),
-                  const Spacer(),
+                  const SizedBox(width: 8),
                   _ComposerChoice(
                     key: const Key('plan-deadline-tomorrow'),
                     label: '明天',
@@ -2339,11 +2384,14 @@ class _PlanComposerState extends State<_PlanComposer> {
             if (widget.goals.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(26, 5, 0, 1),
-                child: Row(
+                child: Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 4,
+                  runSpacing: 6,
                   children: [
                     const Text(
                       '所属目标',
-                      style: TextStyle(color: _muted, fontSize: 10),
+                      style: TextStyle(color: _muted, fontSize: 12),
                     ),
                     const SizedBox(width: 10),
                     InkWell(
@@ -2403,7 +2451,7 @@ class _ComposerChoice extends StatelessWidget {
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-        child: Text(label, style: const TextStyle(color: _muted, fontSize: 9)),
+        child: Text(label, style: const TextStyle(color: _muted, fontSize: 11)),
       ),
     );
   }
@@ -2434,7 +2482,7 @@ class _FullWidthAddRow extends StatelessWidget {
               width: 26,
               child: Text(
                 '$number',
-                style: const TextStyle(color: _muted, fontSize: 10),
+                style: const TextStyle(color: _muted, fontSize: 12),
               ),
             ),
             const Icon(Icons.add, size: 17, color: _muted),
@@ -2623,12 +2671,12 @@ class _TaskTileState extends State<_TaskTile> {
           duration: const Duration(milliseconds: 120),
           decoration: BoxDecoration(
             color: _hovering || widget.expanded
-                ? const Color(0x1AFFFFFF)
+                ? _expandedPaper
                 : Colors.transparent,
             border: const Border(bottom: BorderSide(color: _line, width: 0.7)),
           ),
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 5),
+            padding: const EdgeInsets.symmetric(vertical: 8),
             child: Column(
               children: [
                 Row(
@@ -2637,7 +2685,7 @@ class _TaskTileState extends State<_TaskTile> {
                       width: 26,
                       child: Text(
                         '${widget.number}',
-                        style: const TextStyle(color: _muted, fontSize: 10),
+                        style: const TextStyle(color: _muted, fontSize: 12),
                       ),
                     ),
                     SizedBox(
@@ -2662,10 +2710,8 @@ class _TaskTileState extends State<_TaskTile> {
                               onChanged: (_) => _scheduleSave(),
                               onSubmitted: (_) => _saveDetails(),
                               style: TextStyle(
-                                color: task.isCompleted
-                                    ? const Color(0xFF858A86)
-                                    : _ink,
-                                fontSize: 13,
+                                color: task.isCompleted ? _muted : _ink,
+                                fontSize: 14,
                                 decoration: task.isCompleted
                                     ? TextDecoration.lineThrough
                                     : TextDecoration.none,
@@ -2696,10 +2742,8 @@ class _TaskTileState extends State<_TaskTile> {
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
-                                      color: task.isCompleted
-                                          ? const Color(0xFF858A86)
-                                          : _ink,
-                                      fontSize: 13,
+                                      color: task.isCompleted ? _muted : _ink,
+                                      fontSize: 14,
                                       height: 1.25,
                                       decoration: task.isCompleted
                                           ? TextDecoration.lineThrough
@@ -2710,8 +2754,7 @@ class _TaskTileState extends State<_TaskTile> {
                               ),
                             ),
                     ),
-                    if (!widget.expanded && selectedGoal != null)
-                      _GoalBadge(goal: selectedGoal),
+
                     IconButton(
                       key: Key('task-expand-${task.id}'),
                       onPressed: _toggleExpanded,
@@ -2722,12 +2765,12 @@ class _TaskTileState extends State<_TaskTile> {
                       icon: Icon(
                         widget.expanded
                             ? Icons.keyboard_arrow_up
-                            : Icons.keyboard_arrow_down,
+                            : Icons.chevron_right,
                       ),
                     ),
-                    if (!widget.expanded)
+                    if (widget.expanded)
                       Opacity(
-                        opacity: _hovering ? 1 : 0.2,
+                        opacity: 1,
                         child: IconButton(
                           key: Key('delete-task-${task.id}'),
                           onPressed: widget.onDelete,
@@ -2735,14 +2778,22 @@ class _TaskTileState extends State<_TaskTile> {
                           iconSize: 14,
                           color: _muted,
                           visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.close),
+                          icon: const Icon(Icons.delete_outline),
                         ),
                       ),
                   ],
                 ),
+                if (!widget.expanded && selectedGoal != null)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 60, bottom: 6),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: _GoalBadge(goal: selectedGoal),
+                    ),
+                  ),
                 if (widget.expanded) ...[
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(60, 2, 38, 7),
+                    padding: const EdgeInsets.fromLTRB(60, 2, 16, 7),
                     child: TextField(
                       key: Key('task-note-${task.id}'),
                       controller: _noteController,
@@ -2751,7 +2802,7 @@ class _TaskTileState extends State<_TaskTile> {
                       textInputAction: TextInputAction.done,
                       onChanged: (_) => _scheduleSave(),
                       onSubmitted: (_) => _saveDetails(),
-                      style: const TextStyle(color: _muted, fontSize: 11),
+                      style: const TextStyle(color: _muted, fontSize: 12),
                       decoration: const InputDecoration(
                         hintText: '添加一行备注',
                         hintStyle: TextStyle(color: Color(0xFF929692)),
@@ -2801,7 +2852,7 @@ class _TaskTileState extends State<_TaskTile> {
                                   _submitSubtask();
                                 }
                               },
-                              style: const TextStyle(color: _ink, fontSize: 11),
+                              style: const TextStyle(color: _ink, fontSize: 12),
                               decoration: const InputDecoration(
                                 hintText: '输入子任务',
                                 isDense: true,
@@ -2830,7 +2881,7 @@ class _TaskTileState extends State<_TaskTile> {
                                     '添加子任务',
                                     style: TextStyle(
                                       color: _muted,
-                                      fontSize: 10,
+                                      fontSize: 12,
                                     ),
                                   ),
                                 ],
@@ -2853,7 +2904,7 @@ class _TaskTileState extends State<_TaskTile> {
                             color: _titleError
                                 ? const Color(0xFF8B3A32)
                                 : _muted,
-                            fontSize: 9,
+                            fontSize: 12,
                           ),
                         ),
                       ),
@@ -2912,7 +2963,7 @@ class _CompactSubtaskRow extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: subtask.isCompleted ? const Color(0xFF969A96) : _muted,
-                fontSize: 10,
+                fontSize: 12,
                 decoration: subtask.isCompleted
                     ? TextDecoration.lineThrough
                     : TextDecoration.none,
@@ -3023,7 +3074,7 @@ class _EditableSubtaskRowState extends State<_EditableSubtaskRow> {
               textInputAction: TextInputAction.done,
               style: TextStyle(
                 color: subtask.isCompleted ? const Color(0xFF969A96) : _ink,
-                fontSize: 10,
+                fontSize: 12,
                 decoration: subtask.isCompleted
                     ? TextDecoration.lineThrough
                     : TextDecoration.none,
@@ -3032,7 +3083,7 @@ class _EditableSubtaskRowState extends State<_EditableSubtaskRow> {
                 hintText: _error ? '子任务不能为空' : null,
                 hintStyle: const TextStyle(
                   color: Color(0xFF8B3A32),
-                  fontSize: 10,
+                  fontSize: 12,
                 ),
                 isDense: true,
                 border: InputBorder.none,
@@ -3094,6 +3145,7 @@ class _SettingsPageState extends State<SettingsPage> {
   late String _vaultPath;
   bool _switchingVault = false;
   bool _deleteSourceAfterMigration = false;
+  bool _fontsExpanded = false;
   bool _launchAtStartup = false;
   bool _loadingLaunchAtStartup = true;
   bool _changingLaunchAtStartup = false;
@@ -3211,402 +3263,289 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: widget.controller,
-      builder: (context, _) {
-        final settings = widget.controller.settings;
-        return Scaffold(
-          backgroundColor: Colors.transparent,
-          body: Container(
-            decoration: BoxDecoration(
-              color: const Color(0xE6F2F3F1),
-              border: Border.all(color: const Color(0x66FFFFFF)),
-            ),
-            child: Column(
-              children: [
-                _WindowBar(
-                  title: '设置',
-                  onBack: () => Navigator.of(context).pop(),
-                ),
-                Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
-                    children: [
-                      const Text(
-                        '设置',
-                        style: TextStyle(
-                          color: _ink,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w600,
-                        ),
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: widget.controller,
+    builder: (context, _) {
+      final settings = widget.controller.settings;
+      final busy = _loadingLaunchAtStartup || _changingLaunchAtStartup;
+      return Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Container(
+          decoration: BoxDecoration(
+            color: _paper,
+            border: Border.all(color: const Color(0x66FFFFFF)),
+          ),
+          child: Column(
+            children: [
+              _WindowBar(
+                title: '设置',
+                onBack: () => Navigator.of(context).pop(),
+              ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+                  children: [
+                    const Text(
+                      '设置',
+                      style: TextStyle(
+                        color: _ink,
+                        fontSize: 30,
+                        height: 1.3,
+                        fontWeight: FontWeight.w500,
                       ),
-                      const SizedBox(height: 5),
-                      const Text(
-                        '管理桌面行为、数据位置和界面外观。',
-                        style: TextStyle(color: _muted, fontSize: 11),
+                    ),
+                    const SizedBox(height: 20),
+                    const _SettingsSectionTitle(label: '外观'),
+                    const SizedBox(height: 8),
+                    _PreferenceRow(
+                      key: const Key('font-picker-button'),
+                      label: '字体',
+                      value: settings.font.label,
+                      onTap: () =>
+                          setState(() => _fontsExpanded = !_fontsExpanded),
+                      trailing: Icon(
+                        _fontsExpanded
+                            ? Icons.keyboard_arrow_up
+                            : Icons.chevron_right,
+                        size: 16,
+                        color: _muted,
                       ),
-                      const SizedBox(height: 28),
-                      const _SettingsSectionTitle(label: '桌面'),
-                      const SizedBox(height: 8),
-                      InkWell(
-                        key: const Key('launch-at-startup-option'),
-                        onTap:
-                            _loadingLaunchAtStartup ||
-                                _changingLaunchAtStartup ||
-                                widget.onLaunchAtStartupChanged == null
-                            ? null
-                            : () => _changeLaunchAtStartup(!_launchAtStartup),
-                        child: Container(
-                          constraints: const BoxConstraints(minHeight: 64),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0x2BFFFFFF),
-                            border: Border.all(color: _line),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.power_settings_new,
-                                size: 18,
-                                color: settings.accent.color,
-                              ),
-                              const SizedBox(width: 10),
-                              const Expanded(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      '开机启动',
-                                      style: TextStyle(
-                                        color: _ink,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    SizedBox(height: 3),
-                                    Text(
-                                      '登录 Windows 后自动打开 Good Day',
-                                      style: TextStyle(
-                                        color: _muted,
-                                        fontSize: 9,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              if (_loadingLaunchAtStartup ||
-                                  _changingLaunchAtStartup)
-                                const SizedBox.square(
-                                  dimension: 14,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 1.4,
-                                  ),
-                                )
-                              else
-                                SizedBox.square(
-                                  dimension: 24,
-                                  child: Checkbox(
-                                    key: const Key(
-                                      'launch-at-startup-checkbox',
-                                    ),
-                                    value: _launchAtStartup,
-                                    onChanged:
-                                        widget.onLaunchAtStartupChanged == null
-                                        ? null
-                                        : (value) => _changeLaunchAtStartup(
-                                            value ?? false,
-                                          ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 28),
-                      const _SettingsSectionTitle(label: '数据存放位置'),
-                      const SizedBox(height: 8),
+                    ),
+                    if (_fontsExpanded)
                       Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: const Color(0x2BFFFFFF),
-                          border: Border.all(color: _line),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.folder_outlined,
-                                  size: 18,
-                                  color: settings.accent.color,
-                                ),
-                                const SizedBox(width: 9),
-                                const Expanded(
-                                  child: Text(
-                                    'Good Day Vault',
-                                    style: TextStyle(
-                                      color: _ink,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            Tooltip(
-                              message: _vaultPath,
-                              child: Text(
-                                _vaultPath,
-                                key: const Key('vault-path'),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: _muted,
-                                  fontSize: 10,
-                                  height: 1.45,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 13),
-                            SizedBox(
-                              height: 38,
-                              child: OutlinedButton.icon(
-                                key: const Key('choose-vault-button'),
-                                onPressed: _switchingVault
-                                    ? null
-                                    : _chooseVault,
-                                icon: _switchingVault
-                                    ? const SizedBox.square(
-                                        dimension: 13,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 1.4,
-                                        ),
-                                      )
-                                    : const Icon(Icons.folder_open, size: 16),
-                                label: Text(
-                                  _switchingVault ? '正在切换…' : '选择文件夹',
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: settings.accent.color,
-                                  side: BorderSide(
-                                    color: settings.accent.color,
-                                  ),
-                                  shape: const RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.zero,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            const Text(
-                              'Tasks、Plans、Goals、Daily 和 Archive 会保存在这里。选择空文件夹时会迁移现有数据，默认保留原位置。',
-                              style: TextStyle(
-                                color: _muted,
-                                fontSize: 10,
-                                height: 1.45,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            InkWell(
-                              key: const Key('delete-source-option'),
-                              onTap: _switchingVault
-                                  ? null
-                                  : () => setState(
-                                      () => _deleteSourceAfterMigration =
-                                          !_deleteSourceAfterMigration,
-                                    ),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 4,
-                                ),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    SizedBox(
-                                      width: 24,
-                                      height: 24,
-                                      child: Checkbox(
-                                        key: const Key(
-                                          'delete-source-checkbox',
-                                        ),
-                                        value: _deleteSourceAfterMigration,
-                                        onChanged: _switchingVault
-                                            ? null
-                                            : (value) => setState(
-                                                () =>
-                                                    _deleteSourceAfterMigration =
-                                                        value ?? false,
-                                              ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    const Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            '迁移成功后删除原位置数据',
-                                            style: TextStyle(
-                                              color: _ink,
-                                              fontSize: 11,
-                                            ),
-                                          ),
-                                          SizedBox(height: 3),
-                                          Text(
-                                            '默认关闭；删除前会再次确认。已有数据的目标文件夹不会触发删除。',
-                                            style: TextStyle(
-                                              color: _muted,
-                                              fontSize: 9,
-                                              height: 1.4,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 28),
-                      const _SettingsSectionTitle(label: '数据管理'),
-                      const SizedBox(height: 8),
-                      InkWell(
-                        key: const Key('trash-button'),
-                        onTap: _openTrash,
-                        child: Container(
-                          height: 58,
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                          decoration: BoxDecoration(
-                            color: const Color(0x2BFFFFFF),
-                            border: Border.all(color: _line),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.delete_outline,
-                                size: 19,
-                                color: settings.accent.color,
-                              ),
-                              const SizedBox(width: 10),
-                              const Expanded(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      '垃圾桶',
-                                      style: TextStyle(
-                                        color: _ink,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    SizedBox(height: 3),
-                                    Text(
-                                      '查看、恢复或永久清空已删除内容',
-                                      style: TextStyle(
-                                        color: _muted,
-                                        fontSize: 9,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const Icon(
-                                Icons.chevron_right,
-                                size: 17,
-                                color: _muted,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 28),
-                      const _SettingsSectionTitle(label: '字体'),
-                      const SizedBox(height: 8),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0x2BFFFFFF),
-                          border: Border.all(color: _line),
-                        ),
+                        color: _expandedPaper,
                         child: Column(
                           children: [
-                            for (
-                              var index = 0;
-                              index < AppFont.values.length;
-                              index++
-                            ) ...[
+                            for (final font in AppFont.values)
                               _FontOption(
-                                option: AppFont.values[index],
-                                selected:
-                                    settings.font == AppFont.values[index],
+                                option: font,
+                                selected: settings.font == font,
                                 accent: settings.accent.color,
-                                onTap: () => widget.controller.setFont(
-                                  AppFont.values[index],
+                                onTap: () async {
+                                  await widget.controller.setFont(font);
+                                  if (mounted) {
+                                    setState(() => _fontsExpanded = false);
+                                  }
+                                },
+                              ),
+                            const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Text(
+                                '专注当下，慢慢完成。\nGood day, one thing at a time.',
+                                style: TextStyle(
+                                  color: _muted,
+                                  fontSize: 12,
+                                  height: 1.7,
                                 ),
                               ),
-                              if (index != AppFont.values.length - 1)
-                                const Divider(
-                                  height: 1,
-                                  thickness: 0.6,
-                                  color: Color(0x33737873),
-                                ),
-                            ],
+                            ),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 28),
-                      const _SettingsSectionTitle(label: '主题颜色'),
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: const Color(0x2BFFFFFF),
-                          border: Border.all(color: _line),
-                        ),
-                        child: Wrap(
-                          spacing: 14,
-                          runSpacing: 12,
-                          children: [
-                            for (final accent in AppAccent.values)
-                              _AccentOption(
-                                option: accent,
-                                selected: settings.accent == accent,
-                                onTap: () =>
-                                    widget.controller.setAccent(accent),
+                    _PreferenceRow(
+                      label: '主题颜色',
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (final accent in AppAccent.values)
+                            _AccentOption(
+                              option: accent,
+                              selected: settings.accent == accent,
+                              onTap: () => widget.controller.setAccent(accent),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Divider(height: 1, color: _line),
+                    const SizedBox(height: 20),
+                    const _SettingsSectionTitle(label: '桌面'),
+                    const SizedBox(height: 8),
+                    _PreferenceRow(
+                      key: const Key('launch-at-startup-option'),
+                      label: '开机启动',
+                      subtitle: '登录 Windows 后自动打开',
+                      onTap: busy || widget.onLaunchAtStartupChanged == null
+                          ? null
+                          : () => _changeLaunchAtStartup(!_launchAtStartup),
+                      trailing: busy
+                          ? const SizedBox.square(
+                              dimension: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
                               ),
-                          ],
+                            )
+                          : Switch(
+                              key: const Key('launch-at-startup-checkbox'),
+                              value: _launchAtStartup,
+                              onChanged: widget.onLaunchAtStartupChanged == null
+                                  ? null
+                                  : _changeLaunchAtStartup,
+                            ),
+                    ),
+                    const _PreferenceRow(label: '关闭窗口', value: '隐藏到托盘'),
+                    const Divider(height: 1, color: _line),
+                    const SizedBox(height: 20),
+                    const _SettingsSectionTitle(label: '数据'),
+                    const SizedBox(height: 8),
+                    _PreferenceRow(
+                      label: '存放文件夹',
+                      trailing: TextButton(
+                        key: const Key('choose-vault-button'),
+                        onPressed: _switchingVault ? null : _chooseVault,
+                        child: Text(_switchingVault ? '切换中…' : '更改'),
+                      ),
+                    ),
+                    Tooltip(
+                      message: _vaultPath,
+                      child: Text(
+                        _vaultPath,
+                        key: const Key('vault-path'),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: _muted,
+                          fontSize: 12,
+                          height: 1.5,
                         ),
                       ),
-                      const SizedBox(height: 36),
-                      const Divider(height: 1, color: _line),
-                      const SizedBox(height: 16),
-                      const Text(
-                        '更多设置将在这里继续扩展',
-                        style: TextStyle(color: _muted, fontSize: 11),
+                    ),
+                    const SizedBox(height: 12),
+                    InkWell(
+                      key: const Key('delete-source-option'),
+                      onTap: _switchingVault
+                          ? null
+                          : () => setState(
+                              () => _deleteSourceAfterMigration =
+                                  !_deleteSourceAfterMigration,
+                            ),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 32,
+                            height: 40,
+                            child: Checkbox(
+                              key: const Key('delete-source-checkbox'),
+                              value: _deleteSourceAfterMigration,
+                              onChanged: _switchingVault
+                                  ? null
+                                  : (value) => setState(
+                                      () => _deleteSourceAfterMigration =
+                                          value ?? false,
+                                    ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              '迁移后删除原数据',
+                              style: TextStyle(color: _ink, fontSize: 12),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
+                    const Text(
+                      '选择空文件夹会迁移数据，默认保留原位置。删除前会再次确认。',
+                      style: TextStyle(
+                        color: _muted,
+                        fontSize: 12,
+                        height: 1.6,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _PreferenceRow(
+                      key: const Key('trash-button'),
+                      label: '垃圾桶',
+                      subtitle: '查看或恢复已删除内容',
+                      onTap: _openTrash,
+                      trailing: const Icon(
+                        Icons.chevron_right,
+                        size: 16,
+                        color: _muted,
+                      ),
+                    ),
+                    const Divider(height: 1, color: _line),
+                    const SizedBox(height: 20),
+                    const Text(
+                      '数据保存在本地 · Markdown',
+                      style: TextStyle(color: _muted, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class _PreferenceRow extends StatelessWidget {
+  const _PreferenceRow({
+    super.key,
+    required this.label,
+    this.value,
+    this.subtitle,
+    this.trailing,
+    this.onTap,
+  });
+  final String label;
+  final String? value, subtitle;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 48),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(color: _ink, fontSize: 14),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle!,
+                      style: const TextStyle(
+                        color: _muted,
+                        fontSize: 12,
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (value != null)
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 160),
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: Text(
+                    value!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: _muted, fontSize: 12),
                   ),
                 ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
+              ),
+            if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class TrashPage extends StatefulWidget {
@@ -3734,7 +3673,7 @@ class _TrashPageState extends State<TrashPage> {
       backgroundColor: Colors.transparent,
       body: Container(
         decoration: BoxDecoration(
-          color: const Color(0xE6F2F3F1),
+          color: _paper,
           border: Border.all(color: const Color(0x66FFFFFF)),
         ),
         child: Column(
@@ -3742,7 +3681,7 @@ class _TrashPageState extends State<TrashPage> {
             _WindowBar(title: '垃圾桶', onBack: () => Navigator.of(context).pop()),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -3753,17 +3692,17 @@ class _TrashPageState extends State<TrashPage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '已删除内容',
+                                '垃圾桶',
                                 style: TextStyle(
                                   color: _ink,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w600,
+                                  fontSize: 30,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
                               SizedBox(height: 4),
                               Text(
                                 '删除后仍可在这里恢复。',
-                                style: TextStyle(color: _muted, fontSize: 10),
+                                style: TextStyle(color: _muted, fontSize: 12),
                               ),
                             ],
                           ),
@@ -3807,7 +3746,7 @@ class _TrashPageState extends State<TrashPage> {
                                     '垃圾桶是空的',
                                     style: TextStyle(
                                       color: _muted,
-                                      fontSize: 11,
+                                      fontSize: 12,
                                     ),
                                   ),
                                 ],
@@ -3855,7 +3794,7 @@ class _TrashPageState extends State<TrashPage> {
                                               '${date.month}月${date.day}日删除',
                                               style: const TextStyle(
                                                 color: _muted,
-                                                fontSize: 9,
+                                                fontSize: 12,
                                               ),
                                             ),
                                           ],
@@ -3870,7 +3809,7 @@ class _TrashPageState extends State<TrashPage> {
                                             : () => _restore(item),
                                         child: const Text(
                                           '恢复',
-                                          style: TextStyle(fontSize: 10),
+                                          style: TextStyle(fontSize: 12),
                                         ),
                                       ),
                                     ],
@@ -3938,7 +3877,7 @@ class _FontOption extends StatelessWidget {
                   style: TextStyle(
                     color: _ink,
                     fontFamily: option.family,
-                    fontSize: 13,
+                    fontSize: 14,
                     fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                   ),
                 ),
@@ -3964,38 +3903,35 @@ class _AccentOption extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      key: Key('accent-${option.key}'),
-      onTap: onTap,
-      child: SizedBox(
-        width: 62,
-        child: Column(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    selected: selected,
+    label: option.label,
+    child: Tooltip(
+      message: option.label,
+      child: InkWell(
+        key: Key('accent-${option.key}'),
+        onTap: onTap,
+        child: SizedBox(
+          width: 36,
+          height: 40,
+          child: Center(
+            child: Container(
+              width: 24,
+              height: 24,
               decoration: BoxDecoration(
                 color: option.color,
-                border: Border.all(
-                  color: selected ? _ink : const Color(0x33707571),
-                  width: selected ? 2.5 : 1,
-                ),
+                shape: BoxShape.circle,
               ),
               child: selected
-                  ? const Icon(Icons.check, color: Colors.white, size: 16)
+                  ? const Icon(Icons.check, color: Colors.white, size: 14)
                   : null,
             ),
-            const SizedBox(height: 7),
-            Text(
-              option.label,
-              style: const TextStyle(color: _muted, fontSize: 10),
-            ),
-          ],
+          ),
         ),
       ),
-    );
-  }
+    ),
+  );
 }
 
 class _VaultStatus extends StatelessWidget {
@@ -4011,7 +3947,7 @@ class _VaultStatus extends StatelessWidget {
         children: [
           Icon(Icons.check, size: 12, color: _muted),
           SizedBox(width: 6),
-          Text('Markdown 已同步', style: TextStyle(color: _muted, fontSize: 10)),
+          Text('Markdown 已同步', style: TextStyle(color: _muted, fontSize: 12)),
         ],
       ),
     );
@@ -4030,14 +3966,14 @@ class _ErrorState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('无法读取 Vault', style: TextStyle(color: _ink, fontSize: 13)),
+          const Text('无法读取 Vault', style: TextStyle(color: _ink, fontSize: 14)),
           const SizedBox(height: 6),
           Text(
             message,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: _muted, fontSize: 10),
+            style: const TextStyle(color: _muted, fontSize: 12),
           ),
           const SizedBox(height: 10),
           TextButton(onPressed: onRetry, child: const Text('重试')),
