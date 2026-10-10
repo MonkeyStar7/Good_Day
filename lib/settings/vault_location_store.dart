@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../data/safe_file.dart';
+
 import 'package:path_provider/path_provider.dart';
 
 class VaultLocationStore {
@@ -82,9 +84,9 @@ class VaultLocationStore {
   Future<void> save(Directory vaultDirectory) async {
     await configDirectory.create(recursive: true);
     const encoder = JsonEncoder.withIndent('  ');
-    await file.writeAsString(
+    await SafeFile.write(
+      file,
       '${encoder.convert({'vaultPath': vaultDirectory.absolute.path})}\n',
-      flush: true,
     );
   }
 

@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../data/safe_file.dart';
+import '../data/vault_backups.dart';
+
 import 'package:flutter/material.dart';
 
 enum AppFont {
@@ -64,12 +67,13 @@ class AppSettings {
 }
 
 class AppSettingsStore {
-  AppSettingsStore(Directory vaultDirectory)
+  AppSettingsStore(this.vaultDirectory)
     : _directory = Directory(
         '${vaultDirectory.path}${Platform.pathSeparator}.goodday',
       );
 
   final Directory _directory;
+  final Directory vaultDirectory;
 
   File get file =>
       File('${_directory.path}${Platform.pathSeparator}settings.json');
@@ -86,12 +90,10 @@ class AppSettingsStore {
   }
 
   Future<void> save(AppSettings settings) async {
+    await VaultBackups(vaultDirectory).ensureDaily();
     await _directory.create(recursive: true);
     const encoder = JsonEncoder.withIndent('  ');
-    await file.writeAsString(
-      '${encoder.convert(settings.toJson())}\n',
-      flush: true,
-    );
+    await SafeFile.write(file, '${encoder.convert(settings.toJson())}\n');
   }
 }
 
@@ -100,6 +102,8 @@ class AppSettingsController extends ChangeNotifier {
 
   AppSettingsStore? store;
   AppSettings settings;
+  final _operations = OperationQueue();
+  Future<void> get idle => _operations.idle;
 
   static Future<AppSettingsController> load(Directory vaultDirectory) async {
     final store = AppSettingsStore(vaultDirectory);
@@ -109,22 +113,30 @@ class AppSettingsController extends ChangeNotifier {
   factory AppSettingsController.inMemory() =>
       AppSettingsController(const AppSettings());
 
-  Future<void> setFont(AppFont font) async {
+  Future<void> reload() => _operations.run(() async {
+    settings = await store!.load();
+    notifyListeners();
+  });
+
+  Future<void> setFont(AppFont font) => _operations.run(() async {
     if (settings.font == font) return;
-    settings = settings.copyWith(font: font);
+    final next = settings.copyWith(font: font);
+    await store?.save(next);
+    settings = next;
     notifyListeners();
-    await store?.save(settings);
-  }
+  });
 
-  Future<void> setAccent(AppAccent accent) async {
+  Future<void> setAccent(AppAccent accent) => _operations.run(() async {
     if (settings.accent == accent) return;
-    settings = settings.copyWith(accent: accent);
+    final next = settings.copyWith(accent: accent);
+    await store?.save(next);
+    settings = next;
     notifyListeners();
-    await store?.save(settings);
-  }
+  });
 
-  Future<void> useVault(Directory vaultDirectory) async {
-    store = AppSettingsStore(vaultDirectory);
-    await store!.save(settings);
-  }
+  Future<void> useVault(Directory vaultDirectory) => _operations.run(() async {
+    final nextStore = AppSettingsStore(vaultDirectory);
+    await nextStore.save(settings);
+    store = nextStore;
+  });
 }

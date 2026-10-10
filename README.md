@@ -2,6 +2,12 @@
 
 Good Day 是一个以 Markdown 文件保存数据的 Windows 日计划应用。把长期目标、阶段计划和今天要做的事放在一起，数据始终保存在你自己的电脑上。
 
+## 1.1.0 内部审核
+
+当前开发分支包含尚未发布的可靠性升级：切换页面、隐藏窗口或退出前保存待处理编辑；安全替换数据文件、自动备份与校验恢复；跨日和休眠唤醒刷新，以及防止重复启动。
+
+内部版使用独立试用 Vault，正式版下载仍为已发布版本。审核步骤和限制见 [内部试用说明](docs/internal-review.md)。确认通过后再发布 GitHub 升级版本。
+
 ## 下载与启动
 
 **[下载最新 Windows 版本](https://github.com/MonkeyStar7/Good_Day/releases/latest)**
@@ -24,6 +30,7 @@ Good Day 是一个以 Markdown 文件保存数据的 Windows 日计划应用。�
 | 目标 | 创建长期目标，设置说明和颜色，并关联任务或计划 |
 | 本地 Markdown | 自动保存任务、计划、目标和每日记录，关闭后可恢复 |
 | 垃圾桶 | 查看和恢复从界面删除的任务、计划及目标 |
+| 数据备份（1.1.0 内部版） | 每天首次操作前自动备份，手动备份、校验和恢复，保留最近 7 份 |
 | 外观设置 | 调整字体和强调色 |
 | 桌面使用 | 托盘显示与隐藏、窗口缩放，以及可选的开机启动 |
 | 数据文件夹 | 切换到已有 Vault，或将数据迁移到新的空文件夹 |
@@ -106,3 +113,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1
 ```
 
 脚本会重新构建 Release 版本；产物位于 `build/releases/`。版本号读取自 `pubspec.yaml`，发布时将 ZIP 和对应的 `.sha256` 文件上传到 GitHub Releases。
+
+仅制作使用独立数据的内部试用包（不会上传或更新已安装应用）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1 -InternalReview
+```

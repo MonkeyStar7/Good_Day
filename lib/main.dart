@@ -8,6 +8,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as acrylic;
 import 'package:window_manager/window_manager.dart';
 
+import 'backup_page.dart';
+import 'data/safe_file.dart';
+import 'edit_safety.dart';
 import 'data/vault_repository.dart';
 import 'desktop_experience.dart';
 import 'models/good_day_goal.dart';
@@ -33,24 +36,106 @@ const _goalPalette = <Color>[
 
 enum _HomeView { today, plans, goals }
 
-Future<void> main() async {
+Future<void> main(List<String> arguments) async {
+  try {
+    await _startApplication(arguments);
+  } catch (error) {
+    WidgetsFlutterBinding.ensureInitialized();
+    await windowManager.ensureInitialized();
+    await windowManager.setSize(_windowSize);
+    await windowManager.show();
+    runApp(
+      MaterialApp(
+        theme: ThemeData(useMaterial3: true, fontFamily: 'Microsoft YaHei UI'),
+        home: Scaffold(
+          backgroundColor: const Color(0xFFF5F5F0),
+          body: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('暂时无法打开数据', style: TextStyle(fontSize: 22)),
+                  const SizedBox(height: 16),
+                  SelectableText('$error'),
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: () => main(arguments),
+                    child: const Text('重试'),
+                  ),
+                  TextButton(
+                    onPressed: () async {
+                      final selected = await getDirectoryPath(
+                        confirmButtonText: '使用这个数据文件夹',
+                      );
+                      if (selected != null) {
+                        await main([
+                          ...arguments.where(
+                            (argument) =>
+                                !argument.startsWith('--recovery-vault='),
+                          ),
+                          '--recovery-vault=$selected',
+                        ]);
+                      }
+                    },
+                    child: const Text('选择其他数据文件夹'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> _startApplication(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final vaultLocationStore = await VaultLocationStore.create();
-  final savedVault = await vaultLocationStore.load();
+  const internalReview = bool.fromEnvironment('INTERNAL_REVIEW');
+  final reviewHomeArgument = arguments
+      .where((argument) => argument.startsWith('--review-home='))
+      .firstOrNull;
+  final reviewHome = Directory(
+    reviewHomeArgument?.substring('--review-home='.length) ??
+        '${File(Platform.resolvedExecutable).parent.parent.path}${Platform.pathSeparator}review-data',
+  );
+  final vaultLocationStore = internalReview
+      ? VaultLocationStore(
+          Directory('${reviewHome.path}${Platform.pathSeparator}config'),
+        )
+      : await VaultLocationStore.create();
+  final recoveryPath = arguments
+      .where((argument) => argument.startsWith('--recovery-vault='))
+      .firstOrNull;
+  final savedVault = recoveryPath == null
+      ? await vaultLocationStore.load()
+      : Directory(recoveryPath.substring('--recovery-vault='.length));
   final repository = savedVault == null
-      ? await VaultRepository.createDefault()
+      ? (internalReview
+            ? VaultRepository(
+                Directory('${reviewHome.path}${Platform.pathSeparator}Vault'),
+              )
+            : await VaultRepository.createDefault())
       : VaultRepository(savedVault);
   await repository.initialize();
-  await vaultLocationStore.save(repository.vaultDirectory);
-  final settingsController = await AppSettingsController.load(
-    repository.vaultDirectory,
-  );
+  late AppSettingsController settingsController;
+  try {
+    await repository.acquireSession();
+    await vaultLocationStore.save(repository.vaultDirectory);
+    settingsController = await AppSettingsController.load(
+      repository.vaultDirectory,
+    );
+  } catch (_) {
+    await repository.releaseSession();
+    rethrow;
+  }
 
   await acrylic.Window.initialize();
   await windowManager.ensureInitialized();
   final desktopExperience = SystemDesktopExperience();
-  await desktopExperience.initialize();
+  await desktopExperience.initialize(internalReview: internalReview);
   const options = WindowOptions(
     size: _windowSize,
     backgroundColor: Colors.transparent,
@@ -60,6 +145,7 @@ Future<void> main() async {
   );
 
   windowManager.waitUntilReadyToShow(options, () async {
+    await windowManager.setTitle(internalReview ? 'Good Day 内部试用' : 'Good Day');
     await windowManager.setMinimumSize(const Size(340, 500));
     await windowManager.setResizable(true);
     await windowManager.setHasShadow(true);
@@ -91,12 +177,14 @@ class GoodDayApp extends StatelessWidget {
     required this.settingsController,
     this.vaultLocationStore,
     this.desktopExperience,
+    this.clock,
   });
 
   final VaultRepository repository;
   final AppSettingsController settingsController;
   final VaultLocationStore? vaultLocationStore;
   final DesktopExperience? desktopExperience;
+  final DateTime Function()? clock;
 
   @override
   Widget build(BuildContext context) {
@@ -196,6 +284,7 @@ class GoodDayApp extends StatelessWidget {
             settingsController: settingsController,
             vaultLocationStore: vaultLocationStore,
             desktopExperience: desktopExperience,
+            clock: clock,
           ),
         );
       },
@@ -210,18 +299,20 @@ class HomePage extends StatefulWidget {
     required this.settingsController,
     this.vaultLocationStore,
     this.desktopExperience,
+    this.clock,
   });
 
   final VaultRepository repository;
   final AppSettingsController settingsController;
   final VaultLocationStore? vaultLocationStore;
   final DesktopExperience? desktopExperience;
+  final DateTime Function()? clock;
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
   List<GoodDayTask> _tasks = [];
@@ -236,11 +327,91 @@ class _HomePageState extends State<HomePage> {
   String? _expandedPlanId;
   String? _expandedGoalId;
   String? _error;
+  final EditCoordinator _edits = EditCoordinator();
+  final OperationQueue _actions = OperationQueue();
+  final OperationQueue _navigation = OperationQueue();
+  Timer? _dateTimer;
+  late DateTime _displayDate;
+  bool _refreshing = false;
+  bool _transitioning = false;
+  Future<void>? _addingTask;
+  Future<bool>? _leaving;
+  DateTime _now() => widget.clock?.call() ?? _repository.now;
+
+  Future<bool> _saveBeforeLeave() {
+    if (_leaving != null) return _leaving!;
+    final future = _flushBeforeLeave();
+    _leaving = future;
+    return future.whenComplete(() => _leaving = null);
+  }
+
+  Future<bool> _flushBeforeLeave() async {
+    try {
+      if (!await _edits.flush()) return false;
+      if (_isAdding && _controller.text.trim().isNotEmpty) await _addTask();
+      await _actions.idle;
+      await _repository.idle;
+      await widget.settingsController.idle;
+      return true;
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('保存失败，已保留输入，请重试：$error')));
+      }
+      return false;
+    }
+  }
+
+  void _requestRefresh() => unawaited(_refreshDate(force: true));
+
+  Future<void> _refreshDate({bool force = false}) async {
+    if (!mounted || _loading || _refreshing || _transitioning) return;
+    final now = _now();
+    if (!force && isSameDay(now, _displayDate)) return;
+    _refreshing = true;
+    try {
+      if (!await _saveBeforeLeave() || !mounted) return;
+      await _load();
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _requestRefresh();
+  }
+
+  Future<void> _showUnreadableFiles() => showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('有文件无法读取'),
+      content: SingleChildScrollView(
+        child: SelectableText(
+          '这些文件已保留，没有删除或覆盖。请检查文件内容，或在设置 → 数据备份中恢复。\n\n${_repository.unreadableFiles.join('\n')}',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('知道了'),
+        ),
+      ],
+    ),
+  );
 
   @override
   void initState() {
     super.initState();
     _repository = widget.repository;
+    _displayDate = _now();
+    WidgetsBinding.instance.addObserver(this);
+    widget.desktopExperience?.setSaveGuard(_saveBeforeLeave);
+    widget.desktopExperience?.refreshRequests.addListener(_requestRefresh);
+    _dateTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => unawaited(_refreshDate()),
+    );
     widget.desktopExperience?.openSettingsRequests.addListener(
       _handleOpenSettingsRequest,
     );
@@ -252,6 +423,10 @@ class _HomePageState extends State<HomePage> {
     widget.desktopExperience?.openSettingsRequests.removeListener(
       _handleOpenSettingsRequest,
     );
+    _dateTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    widget.desktopExperience?.setSaveGuard(null);
+    widget.desktopExperience?.refreshRequests.removeListener(_requestRefresh);
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -264,7 +439,15 @@ class _HomePageState extends State<HomePage> {
       final plans = await _repository.loadPlans();
       if (!mounted) return;
       setState(() {
-        _tasks = tasks;
+        _displayDate = _now();
+        _tasks = tasks
+            .where(
+              (task) =>
+                  isSameDay(task.scheduledDate, _displayDate) ||
+                  (task.completedAt != null &&
+                      isSameDay(task.completedAt!, _displayDate)),
+            )
+            .toList();
         _goals = goals;
         _plans = plans;
         _loading = false;
@@ -279,7 +462,29 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _addTask() async {
+  Future<void> _addTask() {
+    if (_addingTask != null) return _addingTask!;
+    final future = _actions.run(_persistNewTask);
+    _addingTask = future;
+    return future.whenComplete(() => _addingTask = null);
+  }
+
+  Future<void> _attemptAddTask() async {
+    try {
+      await _addTask();
+    } catch (error) {
+      _showOperationFailure(error);
+    }
+  }
+
+  void _showOperationFailure(Object error) {
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('操作未保存，已保留原数据或输入，请重试：$error')));
+    }
+  }
+
+  Future<void> _persistNewTask() async {
     final title = _controller.text.trim();
     if (title.isEmpty) return;
     final task = await _repository.addTask(title);
@@ -303,59 +508,73 @@ class _HomePageState extends State<HomePage> {
     setState(() => _isAdding = false);
   }
 
-  Future<void> _toggleTask(GoodDayTask task, bool? value) async {
-    final updated = await _repository.setCompleted(task, value ?? false);
-    if (!mounted) return;
-    setState(() {
-      final index = _tasks.indexWhere((item) => item.id == task.id);
-      if (index >= 0) _tasks[index] = updated;
-      _sortTasks();
-    });
-  }
+  Future<void> _toggleTask(GoodDayTask task, bool? value) => _actions
+      .run(() async {
+        final updated = await _repository.setCompleted(task, value ?? false);
+        if (!mounted) return;
+        setState(() {
+          final index = _tasks.indexWhere((item) => item.id == task.id);
+          if (index >= 0) _tasks[index] = updated;
+          _sortTasks();
+        });
+      })
+      .catchError(_showOperationFailure);
 
-  Future<void> _assignTaskGoal(String taskId, String? goalId) async {
-    final updated = await _repository.assignTaskGoal(_taskById(taskId), goalId);
-    if (mounted) setState(() => _replaceTask(updated));
-  }
+  Future<void> _assignTaskGoal(String taskId, String? goalId) => _actions
+      .run(() async {
+        final updated = await _repository.assignTaskGoal(
+          _taskById(taskId),
+          goalId,
+        );
+        if (mounted) setState(() => _replaceTask(updated));
+      })
+      .catchError(_showOperationFailure);
 
-  Future<void> _addGoal(String name, String description, int colorValue) async {
-    final goal = await _repository.addGoal(
-      name: name,
-      description: description,
-      colorValue: colorValue,
-    );
-    if (mounted) setState(() => _goals = [..._goals, goal]);
-  }
+  Future<void> _addGoal(String name, String description, int colorValue) =>
+      _actions.run(() async {
+        final goal = await _repository.addGoal(
+          name: name,
+          description: description,
+          colorValue: colorValue,
+        );
+        if (mounted) setState(() => _goals = [..._goals, goal]);
+      });
 
-  Future<void> _addPlan(String title, DateTime deadline, String? goalId) async {
-    final plan = await _repository.addPlan(
-      title: title,
-      deadline: deadline,
-      goalId: goalId,
-    );
-    if (!mounted) return;
-    setState(() {
-      _plans = [..._plans, plan];
-      _sortPlans();
-    });
-  }
+  Future<void> _addPlan(String title, DateTime deadline, String? goalId) =>
+      _actions.run(() async {
+        final plan = await _repository.addPlan(
+          title: title,
+          deadline: deadline,
+          goalId: goalId,
+        );
+        if (!mounted) return;
+        setState(() {
+          _plans = [..._plans, plan];
+          _sortPlans();
+        });
+      });
 
-  Future<void> _togglePlan(GoodDayPlan plan, bool? value) async {
-    final updated = await _repository.setPlanCompleted(plan, value ?? false);
-    if (!mounted) return;
-    setState(() {
-      final index = _plans.indexWhere((item) => item.id == plan.id);
-      if (index >= 0) _plans[index] = updated;
-      _sortPlans();
-    });
-  }
+  Future<void> _togglePlan(GoodDayPlan plan, bool? value) => _actions
+      .run(() async {
+        final updated = await _repository.setPlanCompleted(
+          plan,
+          value ?? false,
+        );
+        if (!mounted) return;
+        setState(() {
+          final index = _plans.indexWhere((item) => item.id == plan.id);
+          if (index >= 0) _plans[index] = updated;
+          _sortPlans();
+        });
+      })
+      .catchError(_showOperationFailure);
 
   Future<void> _updatePlan(
     GoodDayPlan plan,
     String title,
     DateTime deadline,
     String? goalId,
-  ) async {
+  ) => _actions.run(() async {
     final updated = await _repository.updatePlan(
       plan,
       title: title,
@@ -369,7 +588,7 @@ class _HomePageState extends State<HomePage> {
       if (index >= 0) _plans[index] = updated;
       _sortPlans();
     });
-  }
+  });
 
   Future<void> _deletePlan(GoodDayPlan plan) async {
     if (!await _confirmDelete('计划“${plan.title}”')) return;
@@ -387,7 +606,7 @@ class _HomePageState extends State<HomePage> {
     String name,
     String description,
     int colorValue,
-  ) async {
+  ) => _actions.run(() async {
     final updated = await _repository.updateGoal(
       goal,
       name: name,
@@ -399,7 +618,7 @@ class _HomePageState extends State<HomePage> {
       final index = _goals.indexWhere((item) => item.id == goal.id);
       if (index >= 0) _goals[index] = updated;
     });
-  }
+  });
 
   Future<void> _deleteGoal(GoodDayGoal goal) async {
     if (!await _confirmDelete('目标“${goal.name}”')) return;
@@ -463,8 +682,12 @@ class _HomePageState extends State<HomePage> {
     _HomeView.values[(_view.index + 1) % _HomeView.values.length],
   );
 
-  void _selectView(_HomeView view) {
+  Future<void> _selectView(_HomeView view) => _navigation.run(() async {
     if (_view == view) return;
+    _transitioning = true;
+    final saved = await _saveBeforeLeave();
+    _transitioning = false;
+    if (!saved || !mounted) return;
     setState(() {
       _view = view;
       _expandedTaskId = null;
@@ -473,7 +696,7 @@ class _HomePageState extends State<HomePage> {
       _controller.clear();
       _isAdding = false;
     });
-  }
+  });
 
   Future<void> _deleteTask(GoodDayTask task) async {
     if (!await _confirmDelete('任务“${task.title}”')) return;
@@ -496,30 +719,28 @@ class _HomePageState extends State<HomePage> {
     if (sort) _sortTasks();
   }
 
-  Future<void> _updateTaskDetails(
-    String taskId,
-    String title,
-    String notes,
-  ) async {
-    final updated = await _repository.updateTaskDetails(
-      _taskById(taskId),
-      title: title,
-      notes: notes,
-    );
-    if (mounted) setState(() => _replaceTask(updated));
-  }
+  Future<void> _updateTaskDetails(String taskId, String title, String notes) =>
+      _actions.run(() async {
+        final updated = await _repository.updateTaskDetails(
+          _taskById(taskId),
+          title: title,
+          notes: notes,
+        );
+        if (mounted) setState(() => _replaceTask(updated));
+      });
 
-  Future<void> _addSubtask(String taskId, String title) async {
-    final updated = await _repository.addSubtask(_taskById(taskId), title);
-    if (mounted) setState(() => _replaceTask(updated));
-  }
+  Future<void> _addSubtask(String taskId, String title) =>
+      _actions.run(() async {
+        final updated = await _repository.addSubtask(_taskById(taskId), title);
+        if (mounted) setState(() => _replaceTask(updated));
+      });
 
   Future<void> _updateSubtask(
     String taskId,
     String subtaskId, {
     String? title,
     bool? isCompleted,
-  }) async {
+  }) => _actions.run(() async {
     final updated = await _repository.updateSubtask(
       _taskById(taskId),
       subtaskId,
@@ -527,15 +748,17 @@ class _HomePageState extends State<HomePage> {
       isCompleted: isCompleted,
     );
     if (mounted) setState(() => _replaceTask(updated));
-  }
+  });
 
-  Future<void> _removeSubtask(String taskId, String subtaskId) async {
-    final task = _taskById(taskId);
-    final subtask = task.subtasks.firstWhere((item) => item.id == subtaskId);
-    if (!await _confirmDelete('子任务“${subtask.title}”')) return;
-    final updated = await _repository.removeSubtask(task, subtaskId);
-    if (mounted) setState(() => _replaceTask(updated));
-  }
+  Future<void> _removeSubtask(String taskId, String subtaskId) => _actions.run(
+    () async {
+      final task = _taskById(taskId);
+      final subtask = task.subtasks.firstWhere((item) => item.id == subtaskId);
+      if (!await _confirmDelete('子任务“${subtask.title}”')) return;
+      final updated = await _repository.removeSubtask(task, subtaskId);
+      if (mounted) setState(() => _replaceTask(updated));
+    },
+  );
 
   void _sortTasks() {
     _tasks.sort((a, b) {
@@ -544,10 +767,30 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  Future<void> _toggleEditor(_HomeView type, String id) =>
+      _navigation.run(() async {
+        if (_view != type) return;
+        _transitioning = true;
+        final saved = await _saveBeforeLeave();
+        _transitioning = false;
+        if (!saved || !mounted) return;
+        setState(() {
+          switch (type) {
+            case _HomeView.today:
+              _expandedTaskId = _expandedTaskId == id ? null : id;
+            case _HomeView.plans:
+              _expandedPlanId = _expandedPlanId == id ? null : id;
+            case _HomeView.goals:
+              _expandedGoalId = _expandedGoalId == id ? null : id;
+          }
+        });
+      });
+
   Future<String> _changeVault(
     String selectedPath, {
     required bool deleteSourceAfterMigration,
   }) async {
+    if (!await _saveBeforeLeave()) throw const FileSystemException('请先保存当前编辑');
     final previousRepository = _repository;
     final targetDirectory = Directory(selectedPath);
     await targetDirectory.create(recursive: true);
@@ -560,28 +803,46 @@ class _HomePageState extends State<HomePage> {
     if (currentPath == targetPath) return '已经在使用这个文件夹';
 
     final nextRepository = VaultRepository(targetDirectory);
-    final containsExistingData = await nextRepository.hasVaultData();
-    if (!containsExistingData) {
-      await previousRepository.copyDataTo(targetDirectory);
-    }
+    await nextRepository.acquireSession();
+    late bool containsExistingData;
+    final previousSettingsStore = widget.settingsController.store;
+    try {
+      containsExistingData = await nextRepository.hasVaultData();
+      if (!containsExistingData) {
+        await previousRepository.copyDataTo(targetDirectory);
+      }
 
-    await nextRepository.initialize();
-    final tasks = await nextRepository.loadTasks();
-    final goals = await nextRepository.loadGoals();
-    final plans = await nextRepository.loadPlans();
-    await widget.settingsController.useVault(targetDirectory);
-    await widget.vaultLocationStore?.save(targetDirectory);
+      await nextRepository.initialize();
+      final tasks = await nextRepository.loadTasks();
+      final goals = await nextRepository.loadGoals();
+      final plans = await nextRepository.loadPlans();
+      await widget.settingsController.useVault(targetDirectory);
+      await widget.vaultLocationStore?.save(targetDirectory);
 
-    if (mounted) {
-      setState(() {
-        _repository = nextRepository;
-        _tasks = tasks;
-        _goals = goals;
-        _plans = plans;
-        _loading = false;
-        _error = null;
-      });
+      if (mounted) {
+        setState(() {
+          _repository = nextRepository;
+          _displayDate = _now();
+          _tasks = tasks
+              .where(
+                (task) =>
+                    isSameDay(task.scheduledDate, _displayDate) ||
+                    (task.completedAt != null &&
+                        isSameDay(task.completedAt!, _displayDate)),
+              )
+              .toList();
+          _goals = goals;
+          _plans = plans;
+          _loading = false;
+          _error = null;
+        });
+      }
+    } catch (_) {
+      widget.settingsController.store = previousSettingsStore;
+      await nextRepository.releaseSession();
+      rethrow;
     }
+    await previousRepository.releaseSession();
     if (containsExistingData) return '已切换到这个 Good Day Vault，没有删除原数据';
     if (!deleteSourceAfterMigration) return '已复制数据并切换，原文件仍保留';
 
@@ -598,6 +859,10 @@ class _HomePageState extends State<HomePage> {
   Future<void> _openSettings() async {
     if (_settingsOpen) return;
     _settingsOpen = true;
+    if (!await _saveBeforeLeave() || !mounted) {
+      _settingsOpen = false;
+      return;
+    }
     await Navigator.of(context).push(
       PageRouteBuilder<void>(
         transitionDuration: const Duration(milliseconds: 160),
@@ -609,6 +874,22 @@ class _HomePageState extends State<HomePage> {
           onLoadTrash: _loadTrash,
           onRestoreTrashItem: _restoreTrashItem,
           onEmptyTrash: _emptyTrash,
+          onOpenBackups: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => BackupPage(
+                path: _repository.backups.directory.path,
+                onList: _repository.backups.list,
+                onCreate: () async {
+                  await _repository.createBackup();
+                },
+                onRestore: (id) async {
+                  await _repository.restoreBackup(id);
+                  await widget.settingsController.reload();
+                  await _load();
+                },
+              ),
+            ),
+          ),
           isLaunchAtStartupEnabled:
               widget.desktopExperience?.isLaunchAtStartupEnabled,
           onLaunchAtStartupChanged:
@@ -625,47 +906,58 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final completed = _tasks.where((task) => task.isCompleted).length;
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: Container(
-        decoration: BoxDecoration(
-          color: _paper,
-          border: Border.all(color: const Color(0x66FFFFFF)),
-        ),
-        child: Column(
-          children: [
-            _WindowBar(
-              onSettings: _openSettings,
-              onClose: widget.desktopExperience == null
-                  ? null
-                  : () => unawaited(widget.desktopExperience!.hideWindow()),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _ModeHeader(
-                      mode: _view,
-                      date: DateTime.now(),
-                      completed: completed,
-                      total: _tasks.length,
-                      planCount: _plans.length,
-                      goalCount: _goals.length,
-                      onTap: _cycleView,
-                      onSelect: _selectView,
-                    ),
-                    const SizedBox(height: 24),
-                    Expanded(child: _buildCurrentArea()),
-                    const Divider(height: 1, thickness: 0.7, color: _line),
-                    const SizedBox(height: 12),
-                    _VaultStatus(path: _repository.vaultDirectory.path),
-                  ],
+    return EditScope(
+      coordinator: _edits,
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Container(
+          decoration: BoxDecoration(
+            color: _paper,
+            border: Border.all(color: const Color(0x66FFFFFF)),
+          ),
+          child: Column(
+            children: [
+              _WindowBar(
+                onSettings: _openSettings,
+                onClose: widget.desktopExperience == null
+                    ? null
+                    : () => unawaited(widget.desktopExperience!.hideWindow()),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _ModeHeader(
+                        mode: _view,
+                        date: _displayDate,
+                        completed: completed,
+                        total: _tasks.length,
+                        planCount: _plans.length,
+                        goalCount: _goals.length,
+                        onTap: _cycleView,
+                        onSelect: _selectView,
+                      ),
+                      const SizedBox(height: 24),
+                      if (_repository.unreadableFiles.isNotEmpty)
+                        TextButton(
+                          key: const Key('unreadable-files-warning'),
+                          onPressed: _showUnreadableFiles,
+                          child: Text(
+                            '${_repository.unreadableFiles.length} 个文件无法读取，点击查看',
+                          ),
+                        ),
+                      Expanded(child: _buildCurrentArea()),
+                      const Divider(height: 1, thickness: 0.7, color: _line),
+                      const SizedBox(height: 12),
+                      _VaultStatus(path: _repository.vaultDirectory.path),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -704,9 +996,7 @@ class _HomePageState extends State<HomePage> {
               task: task,
               goals: _goals,
               expanded: _expandedTaskId == task.id,
-              onToggleExpanded: () => setState(() {
-                _expandedTaskId = _expandedTaskId == task.id ? null : task.id;
-              }),
+              onToggleExpanded: () => _toggleEditor(_HomeView.today, task.id),
               onChanged: (value) => _toggleTask(task, value),
               onDetailsChanged: (title, notes) =>
                   _updateTaskDetails(task.id, title, notes),
@@ -731,7 +1021,7 @@ class _HomePageState extends State<HomePage> {
               controller: _controller,
               focusNode: _focusNode,
               onStart: _startAdding,
-              onAdd: _addTask,
+              onAdd: _attemptAddTask,
               onCancel: _cancelAdding,
             );
           }
@@ -758,9 +1048,7 @@ class _HomePageState extends State<HomePage> {
               goal: _goalById(plan.goalId),
               goals: _goals,
               expanded: _expandedPlanId == plan.id,
-              onToggleExpanded: () => setState(() {
-                _expandedPlanId = _expandedPlanId == plan.id ? null : plan.id;
-              }),
+              onToggleExpanded: () => _toggleEditor(_HomeView.plans, plan.id),
               onChanged: (value) => _togglePlan(plan, value),
               onDetailsChanged: (title, deadline, goalId) =>
                   _updatePlan(plan, title, deadline, goalId),
@@ -795,9 +1083,7 @@ class _HomePageState extends State<HomePage> {
               number: index + 1,
               goal: goal,
               expanded: _expandedGoalId == goal.id,
-              onToggleExpanded: () => setState(() {
-                _expandedGoalId = _expandedGoalId == goal.id ? null : goal.id;
-              }),
+              onToggleExpanded: () => _toggleEditor(_HomeView.goals, goal.id),
               onDetailsChanged: (name, description, colorValue) =>
                   _updateGoal(goal, name, description, colorValue),
               onDelete: () => _deleteGoal(goal),
@@ -1362,7 +1648,8 @@ class _GoalTile extends StatefulWidget {
   State<_GoalTile> createState() => _GoalTileState();
 }
 
-class _GoalTileState extends State<_GoalTile> {
+class _GoalTileState extends State<_GoalTile>
+    with AutomaticKeepAliveClientMixin<_GoalTile>, ReliableEditor<_GoalTile> {
   late final TextEditingController _nameController;
   late final TextEditingController _descriptionController;
   final _nameFocus = FocusNode();
@@ -1381,19 +1668,26 @@ class _GoalTileState extends State<_GoalTile> {
       text: widget.goal.description,
     );
     _colorValue = widget.goal.colorValue;
+    _nameController.addListener(markPendingEdit);
+    _descriptionController.addListener(markPendingEdit);
   }
 
   @override
   void didUpdateWidget(covariant _GoalTile oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!_nameFocus.hasFocus && _nameController.text != widget.goal.name) {
+    if (!hasPendingEdits &&
+        !_nameFocus.hasFocus &&
+        _nameController.text != widget.goal.name) {
       _nameController.text = widget.goal.name;
     }
-    if (!_descriptionFocus.hasFocus &&
+    if (!hasPendingEdits &&
+        !_descriptionFocus.hasFocus &&
         _descriptionController.text != widget.goal.description) {
       _descriptionController.text = widget.goal.description;
     }
-    if (!widget.expanded) _colorValue = widget.goal.colorValue;
+    if (!hasPendingEdits && !widget.expanded) {
+      _colorValue = widget.goal.colorValue;
+    }
   }
 
   @override
@@ -1407,6 +1701,7 @@ class _GoalTileState extends State<_GoalTile> {
   }
 
   void _scheduleSave() {
+    markPendingEdit();
     _saveTimer?.cancel();
     final valid = _nameController.text.trim().isNotEmpty;
     if (_nameError == valid) setState(() => _nameError = !valid);
@@ -1416,6 +1711,13 @@ class _GoalTileState extends State<_GoalTile> {
   }
 
   Future<bool> _saveDetails() async {
+    _saveTimer?.cancel();
+    markPendingEdit();
+    return flushPendingEdits();
+  }
+
+  @override
+  Future<bool> persistEdits() async {
     _saveTimer?.cancel();
     final name = _nameController.text.trim();
     if (name.isEmpty) {
@@ -1454,6 +1756,7 @@ class _GoalTileState extends State<_GoalTile> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final goal = widget.goal;
     return TapRegion(
       onTapOutside: widget.expanded ? (_) => _toggleExpanded() : null,
@@ -1648,13 +1951,23 @@ class _GoalComposer extends StatefulWidget {
   State<_GoalComposer> createState() => _GoalComposerState();
 }
 
-class _GoalComposerState extends State<_GoalComposer> {
+class _GoalComposerState extends State<_GoalComposer>
+    with
+        AutomaticKeepAliveClientMixin<_GoalComposer>,
+        ReliableEditor<_GoalComposer> {
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _focusNode = FocusNode();
   bool _editing = false;
   bool _saving = false;
   int _colorValue = _goalPalette.first.toARGB32();
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController.addListener(markPendingEdit);
+    _descriptionController.addListener(markPendingEdit);
+  }
 
   @override
   void dispose() {
@@ -1681,11 +1994,22 @@ class _GoalComposerState extends State<_GoalComposer> {
   }
 
   Future<void> _finish() async {
-    if (_saving) return;
+    markPendingEdit();
+    await flushPendingEdits();
+  }
+
+  @override
+  Future<bool> persistEdits() async {
+    if (_saving) return false;
     final name = _nameController.text.trim();
     if (name.isEmpty) {
+      if (_descriptionController.text.trim().isNotEmpty) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('请填写目标名称，或取消添加')));
+        return false;
+      }
       _cancel();
-      return;
+      return true;
     }
     setState(() => _saving = true);
     try {
@@ -1695,6 +2019,13 @@ class _GoalComposerState extends State<_GoalComposer> {
         _colorValue,
       );
       if (mounted) _cancel();
+      return true;
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('保存失败，已保留输入：$error')));
+      }
+      return false;
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -1702,6 +2033,7 @@ class _GoalComposerState extends State<_GoalComposer> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     if (!_editing) {
       return _FullWidthAddRow(
         key: const Key('add-goal-button'),
@@ -1729,6 +2061,7 @@ class _GoalComposerState extends State<_GoalComposer> {
                 ),
                 Expanded(
                   child: TextField(
+                    enabled: !_saving,
                     key: const Key('new-goal-name'),
                     controller: _nameController,
                     focusNode: _focusNode,
@@ -1747,6 +2080,7 @@ class _GoalComposerState extends State<_GoalComposer> {
             Padding(
               padding: const EdgeInsets.fromLTRB(26, 4, 0, 5),
               child: TextField(
+                enabled: !_saving,
                 key: const Key('new-goal-description'),
                 controller: _descriptionController,
                 maxLines: 1,
@@ -1827,7 +2161,8 @@ class _PlanTile extends StatefulWidget {
   State<_PlanTile> createState() => _PlanTileState();
 }
 
-class _PlanTileState extends State<_PlanTile> {
+class _PlanTileState extends State<_PlanTile>
+    with AutomaticKeepAliveClientMixin<_PlanTile>, ReliableEditor<_PlanTile> {
   late final TextEditingController _titleController;
   final _titleFocus = FocusNode();
   Timer? _saveTimer;
@@ -1844,15 +2179,18 @@ class _PlanTileState extends State<_PlanTile> {
     _titleController = TextEditingController(text: widget.plan.title);
     _deadline = widget.plan.deadline;
     _goalId = widget.plan.goalId;
+    _titleController.addListener(markPendingEdit);
   }
 
   @override
   void didUpdateWidget(covariant _PlanTile oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!_titleFocus.hasFocus && _titleController.text != widget.plan.title) {
+    if (!hasPendingEdits &&
+        !_titleFocus.hasFocus &&
+        _titleController.text != widget.plan.title) {
       _titleController.text = widget.plan.title;
     }
-    if (!widget.expanded) {
+    if (!hasPendingEdits && !widget.expanded) {
       _deadline = widget.plan.deadline;
       _goalId = widget.plan.goalId;
     }
@@ -1867,6 +2205,7 @@ class _PlanTileState extends State<_PlanTile> {
   }
 
   void _scheduleSave() {
+    markPendingEdit();
     _saveTimer?.cancel();
     final valid = _titleController.text.trim().isNotEmpty;
     if (_titleError == valid) setState(() => _titleError = !valid);
@@ -1876,6 +2215,13 @@ class _PlanTileState extends State<_PlanTile> {
   }
 
   Future<bool> _saveDetails() async {
+    _saveTimer?.cancel();
+    markPendingEdit();
+    return flushPendingEdits();
+  }
+
+  @override
+  Future<bool> persistEdits() async {
     _saveTimer?.cancel();
     final title = _titleController.text.trim();
     if (title.isEmpty) {
@@ -1939,6 +2285,7 @@ class _PlanTileState extends State<_PlanTile> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final plan = widget.plan;
     GoodDayGoal? selectedGoal;
     for (final goal in widget.goals) {
@@ -2225,7 +2572,10 @@ class _PlanComposer extends StatefulWidget {
   State<_PlanComposer> createState() => _PlanComposerState();
 }
 
-class _PlanComposerState extends State<_PlanComposer> {
+class _PlanComposerState extends State<_PlanComposer>
+    with
+        AutomaticKeepAliveClientMixin<_PlanComposer>,
+        ReliableEditor<_PlanComposer> {
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
   bool _editing = false;
@@ -2234,6 +2584,12 @@ class _PlanComposerState extends State<_PlanComposer> {
   bool _needsDeadline = false;
   DateTime? _deadline;
   String? _goalId;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(markPendingEdit);
+  }
 
   @override
   void dispose() {
@@ -2260,26 +2616,42 @@ class _PlanComposerState extends State<_PlanComposer> {
   }
 
   Future<void> _finish() async {
-    if (_saving || _choosingDate) return;
+    markPendingEdit();
+    await flushPendingEdits();
+  }
+
+  @override
+  Future<bool> persistEdits() async {
+    if (_saving || _choosingDate) return false;
     final title = _controller.text.trim();
     if (title.isEmpty && _deadline == null) {
       _cancel();
-      return;
+      return true;
     }
     if (title.isEmpty || _deadline == null) {
       setState(() => _needsDeadline = _deadline == null);
-      return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('请填写计划名称并选择截止日期，或取消添加')));
+      return false;
     }
     setState(() => _saving = true);
     try {
       await widget.onCreate(title, _deadline!, _goalId);
       if (mounted) _cancel();
+      return true;
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('保存失败，已保留输入：$error')));
+      }
+      return false;
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 
   void _setDeadline(int daysFromNow) {
+    markPendingEdit();
     final now = DateTime.now();
     setState(() {
       _deadline = DateTime(now.year, now.month, now.day + daysFromNow);
@@ -2309,6 +2681,7 @@ class _PlanComposerState extends State<_PlanComposer> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     if (!_editing) {
       return _FullWidthAddRow(
         key: const Key('add-plan-button'),
@@ -2336,6 +2709,7 @@ class _PlanComposerState extends State<_PlanComposer> {
                 ),
                 Expanded(
                   child: TextField(
+                    enabled: !_saving,
                     key: const Key('new-plan-title'),
                     controller: _controller,
                     focusNode: _focusNode,
@@ -2533,7 +2907,8 @@ class _TaskTile extends StatefulWidget {
   State<_TaskTile> createState() => _TaskTileState();
 }
 
-class _TaskTileState extends State<_TaskTile> {
+class _TaskTileState extends State<_TaskTile>
+    with AutomaticKeepAliveClientMixin<_TaskTile>, ReliableEditor<_TaskTile> {
   late final TextEditingController _titleController;
   late final TextEditingController _noteController;
   final _titleFocus = FocusNode();
@@ -2553,15 +2928,22 @@ class _TaskTileState extends State<_TaskTile> {
     super.initState();
     _titleController = TextEditingController(text: widget.task.title);
     _noteController = TextEditingController(text: widget.task.notes);
+    _titleController.addListener(markPendingEdit);
+    _noteController.addListener(markPendingEdit);
+    _newSubtaskController.addListener(markPendingEdit);
   }
 
   @override
   void didUpdateWidget(covariant _TaskTile oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!_titleFocus.hasFocus && _titleController.text != widget.task.title) {
+    if (!hasPendingEdits &&
+        !_titleFocus.hasFocus &&
+        _titleController.text != widget.task.title) {
       _titleController.text = widget.task.title;
     }
-    if (!_noteFocus.hasFocus && _noteController.text != widget.task.notes) {
+    if (!hasPendingEdits &&
+        !_noteFocus.hasFocus &&
+        _noteController.text != widget.task.notes) {
       _noteController.text = widget.task.notes;
     }
   }
@@ -2580,6 +2962,7 @@ class _TaskTileState extends State<_TaskTile> {
   }
 
   void _scheduleSave() {
+    markPendingEdit();
     _saveTimer?.cancel();
     final valid = _titleController.text.trim().isNotEmpty;
     if (_titleError == valid) setState(() => _titleError = !valid);
@@ -2588,6 +2971,21 @@ class _TaskTileState extends State<_TaskTile> {
   }
 
   Future<bool> _saveDetails() async {
+    _saveTimer?.cancel();
+    markPendingEdit();
+    return flushPendingEdits();
+  }
+
+  @override
+  Future<bool> persistEdits() async {
+    if (!await _persistTaskDetails()) return false;
+    if (_newSubtaskController.text.trim().isNotEmpty) {
+      return _persistNewSubtask();
+    }
+    return true;
+  }
+
+  Future<bool> _persistTaskDetails() async {
     _saveTimer?.cancel();
     final title = _titleController.text.trim();
     if (title.isEmpty) {
@@ -2641,22 +3039,30 @@ class _TaskTileState extends State<_TaskTile> {
   }
 
   Future<void> _submitSubtask() async {
+    markPendingEdit();
+    await flushPendingEdits();
+  }
+
+  Future<bool> _persistNewSubtask() async {
     final title = _newSubtaskController.text.trim();
-    if (title.isEmpty) return;
+    if (title.isEmpty) return true;
     try {
       await widget.onAddSubtask(title);
-      if (!mounted) return;
+      if (!mounted) return true;
       _newSubtaskController.clear();
       setState(() => _addingSubtask = false);
+      return true;
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) return true;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('无法添加子任务：$error')));
+      return false;
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final task = widget.task;
     GoodDayGoal? selectedGoal;
     for (final goal in widget.goals) {
@@ -2994,7 +3400,10 @@ class _EditableSubtaskRow extends StatefulWidget {
   State<_EditableSubtaskRow> createState() => _EditableSubtaskRowState();
 }
 
-class _EditableSubtaskRowState extends State<_EditableSubtaskRow> {
+class _EditableSubtaskRowState extends State<_EditableSubtaskRow>
+    with
+        AutomaticKeepAliveClientMixin<_EditableSubtaskRow>,
+        ReliableEditor<_EditableSubtaskRow> {
   late final TextEditingController _controller;
   final _focusNode = FocusNode();
   Timer? _timer;
@@ -3004,12 +3413,15 @@ class _EditableSubtaskRowState extends State<_EditableSubtaskRow> {
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.subtask.title);
+    _controller.addListener(markPendingEdit);
   }
 
   @override
   void didUpdateWidget(covariant _EditableSubtaskRow oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!_focusNode.hasFocus && _controller.text != widget.subtask.title) {
+    if (!hasPendingEdits &&
+        !_focusNode.hasFocus &&
+        _controller.text != widget.subtask.title) {
       _controller.text = widget.subtask.title;
     }
   }
@@ -3023,6 +3435,7 @@ class _EditableSubtaskRowState extends State<_EditableSubtaskRow> {
   }
 
   void _scheduleSave() {
+    markPendingEdit();
     _timer?.cancel();
     final valid = _controller.text.trim().isNotEmpty;
     if (_error == valid) setState(() => _error = !valid);
@@ -3032,18 +3445,35 @@ class _EditableSubtaskRowState extends State<_EditableSubtaskRow> {
 
   Future<void> _save() async {
     _timer?.cancel();
+    markPendingEdit();
+    await flushPendingEdits();
+  }
+
+  @override
+  Future<bool> persistEdits() async {
+    _timer?.cancel();
     final title = _controller.text.trim();
     if (title.isEmpty) {
       if (mounted) setState(() => _error = true);
-      return;
+      return false;
     }
-    if (title == widget.subtask.title) return;
-    await widget.onUpdate(widget.subtask.id, title: title);
-    if (mounted) setState(() => _error = false);
+    if (title == widget.subtask.title) return true;
+    try {
+      await widget.onUpdate(widget.subtask.id, title: title);
+      if (mounted) setState(() => _error = false);
+      return true;
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('子任务保存失败，已保留输入：$error')));
+      }
+      return false;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final subtask = widget.subtask;
     return Padding(
       padding: const EdgeInsets.fromLTRB(56, 0, 28, 1),
@@ -3124,6 +3554,7 @@ class SettingsPage extends StatefulWidget {
     required this.onLoadTrash,
     required this.onRestoreTrashItem,
     required this.onEmptyTrash,
+    this.onOpenBackups,
     this.isLaunchAtStartupEnabled,
     this.onLaunchAtStartupChanged,
   });
@@ -3134,6 +3565,7 @@ class SettingsPage extends StatefulWidget {
   final LoadTrashCallback onLoadTrash;
   final RestoreTrashItemCallback onRestoreTrashItem;
   final EmptyTrashCallback onEmptyTrash;
+  final VoidCallback? onOpenBackups;
   final IsLaunchAtStartupEnabledCallback? isLaunchAtStartupEnabled;
   final LaunchAtStartupChangedCallback? onLaunchAtStartupChanged;
 
@@ -3387,6 +3819,18 @@ class _SettingsPageState extends State<SettingsPage> {
                     const Divider(height: 1, color: _line),
                     const SizedBox(height: 20),
                     const _SettingsSectionTitle(label: '数据'),
+                    if (widget.onOpenBackups != null)
+                      _PreferenceRow(
+                        key: const Key('backups-button'),
+                        label: '数据备份',
+                        subtitle: '自动备份、手动备份与恢复',
+                        onTap: widget.onOpenBackups,
+                        trailing: const Icon(
+                          Icons.chevron_right,
+                          size: 16,
+                          color: _muted,
+                        ),
+                      ),
                     const SizedBox(height: 8),
                     _PreferenceRow(
                       label: '存放文件夹',

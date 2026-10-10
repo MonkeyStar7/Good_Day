@@ -2,6 +2,9 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
+import 'safe_file.dart';
+import 'vault_backups.dart';
+
 import '../models/good_day_goal.dart';
 import '../models/good_day_plan.dart';
 import '../models/good_day_task.dart';
@@ -28,6 +31,68 @@ class VaultRepository {
 
   final Directory vaultDirectory;
   final DateTime Function() _clock;
+  DateTime get now => _clock();
+  static int _idSequence = 0;
+  static String _newId(String prefix, DateTime time) =>
+      '${prefix}_${time.microsecondsSinceEpoch.toRadixString(36)}_${(_idSequence++).toRadixString(36)}';
+  final OperationQueue _operations = OperationQueue();
+  final Set<String> _unreadableFiles = {};
+  RandomAccessFile? _session;
+
+  Future<void> acquireSession() async {
+    if (_session != null) return;
+    final directory = _childDirectory(vaultDirectory, '.goodday');
+    await directory.create(recursive: true);
+    final file = await _childFile(
+      directory,
+      'session.lock',
+    ).open(mode: FileMode.append);
+    try {
+      await file.lock(FileLock.exclusive);
+      _session = file;
+    } catch (_) {
+      await file.close();
+      throw FileSystemException(
+        '这个数据文件夹已被另一个 Good Day 窗口使用，请回到原窗口',
+        vaultDirectory.path,
+      );
+    }
+  }
+
+  Future<void> releaseSession() async {
+    await _session?.close();
+    _session = null;
+  }
+
+  List<String> get unreadableFiles => List.unmodifiable(_unreadableFiles);
+  late final VaultBackups backups = VaultBackups(vaultDirectory, clock: _clock);
+
+  Future<T> _writeOperation<T>(Future<T> Function() operation) =>
+      _operations.run(() async {
+        await initialize();
+        await backups.ensureDaily();
+        return operation();
+      });
+
+  Future<void> get idle => _operations.idle;
+  Future<void> restoreBackup(String id) => _operations.run(() async {
+    await backups.restore(id);
+    _unreadableFiles.clear();
+  });
+  Future<VaultBackup> createBackup() => _operations.run(backups.createManual);
+
+  Future<GoodDayTask> _currentTask(GoodDayTask task) async =>
+      GoodDayTask.fromMarkdown(
+        await _taskFile(tasksDirectory, task.id).readAsString(),
+      );
+  Future<GoodDayPlan> _currentPlan(GoodDayPlan plan) async =>
+      GoodDayPlan.fromMarkdown(
+        await _taskFile(plansDirectory, plan.id).readAsString(),
+      );
+  Future<GoodDayGoal> _currentGoal(GoodDayGoal goal) async =>
+      GoodDayGoal.fromMarkdown(
+        await _taskFile(goalsDirectory, goal.id).readAsString(),
+      );
 
   Directory get tasksDirectory => _childDirectory(vaultDirectory, 'Tasks');
   Directory get dailyDirectory => _childDirectory(vaultDirectory, 'Daily');
@@ -72,7 +137,7 @@ class VaultRepository {
     return false;
   }
 
-  Future<void> copyDataTo(Directory targetVault) async {
+  Future<void> copyDataTo(Directory targetVault) => _writeOperation(() async {
     await initialize();
     await targetVault.create(recursive: true);
 
@@ -95,9 +160,13 @@ class VaultRepository {
         _childDirectory(targetVault, name),
       );
     }
-  }
+    await _copyDirectory(
+      _childDirectory(vaultDirectory, '.goodday'),
+      _childDirectory(targetVault, '.goodday'),
+    );
+  });
 
-  Future<void> deleteManagedData() async {
+  Future<void> deleteManagedData() => _writeOperation(() async {
     final resolvedVaultPath = (await vaultDirectory.resolveSymbolicLinks())
         .replaceAll('/', Platform.pathSeparator);
     if (_isFileSystemRoot(resolvedVaultPath)) {
@@ -121,16 +190,21 @@ class VaultRepository {
         await settingsDirectory.list().isEmpty) {
       await settingsDirectory.delete();
     }
-  }
+  });
 
-  Future<List<GoodDayTask>> loadTasks() async {
+  Future<List<GoodDayTask>> loadTasks() => _writeOperation(() async {
     await initialize();
     final tasks = await _readTasks(tasksDirectory);
     final now = _clock();
 
     for (var i = 0; i < tasks.length; i++) {
       final task = tasks[i];
-      if (!task.isCompleted && !isSameDay(task.scheduledDate, now)) {
+      if (!task.isCompleted &&
+          DateTime(
+            task.scheduledDate.year,
+            task.scheduledDate.month,
+            task.scheduledDate.day,
+          ).isBefore(DateTime(now.year, now.month, now.day))) {
         final rolled = task.rollForward(now);
         tasks[i] = rolled;
         await _writeTask(rolled);
@@ -140,12 +214,12 @@ class VaultRepository {
     _sort(tasks);
     await _syncDaily(tasks, now);
     return tasks;
-  }
+  });
 
-  Future<GoodDayTask> addTask(String title) async {
+  Future<GoodDayTask> addTask(String title) => _writeOperation(() async {
     final now = _clock();
     final task = GoodDayTask(
-      id: 'gd_${now.microsecondsSinceEpoch.toRadixString(36)}',
+      id: _newId('gd', now),
       title: title.trim(),
       createdAt: now,
       scheduledDate: now,
@@ -153,22 +227,26 @@ class VaultRepository {
     await _writeTask(task);
     await _syncDaily(await _readTasks(tasksDirectory), now);
     return task;
-  }
+  });
 
-  Future<GoodDayTask> setCompleted(GoodDayTask task, bool completed) async {
-    final now = _clock();
-    final updated = task.setCompleted(completed, now);
-    await _writeTask(updated);
-    await _syncDaily(await _readTasks(tasksDirectory), now);
-    return updated;
-  }
+  Future<GoodDayTask> setCompleted(GoodDayTask task, bool completed) =>
+      _writeOperation(() async {
+        task = await _currentTask(task);
+        final now = _clock();
+        final updated = task.setCompleted(completed, now);
+        await _writeTask(updated);
+        await _syncDaily(await _readTasks(tasksDirectory), now);
+        return updated;
+      });
 
-  Future<GoodDayTask> assignTaskGoal(GoodDayTask task, String? goalId) async {
-    final updated = task.assignGoal(goalId);
-    await _writeTask(updated);
-    await _syncDaily(await _readTasks(tasksDirectory), _clock());
-    return updated;
-  }
+  Future<GoodDayTask> assignTaskGoal(GoodDayTask task, String? goalId) =>
+      _writeOperation(() async {
+        task = await _currentTask(task);
+        final updated = task.assignGoal(goalId);
+        await _writeTask(updated);
+        await _syncDaily(await _readTasks(tasksDirectory), _clock());
+        return updated;
+      });
 
   Future<List<GoodDayGoal>> loadGoals() async {
     await initialize();
@@ -179,8 +257,11 @@ class VaultRepository {
       }
       try {
         goals.add(GoodDayGoal.fromMarkdown(await entity.readAsString()));
+        _unreadableFiles.remove(entity.path);
       } on FormatException {
-        // Keep malformed or hand-written files untouched.
+        _unreadableFiles.add(entity.path);
+      } on FileSystemException {
+        _unreadableFiles.add(entity.path);
       }
     }
     goals.sort((a, b) => a.createdAt.compareTo(b.createdAt));
@@ -191,12 +272,12 @@ class VaultRepository {
     required String name,
     required String description,
     required int colorValue,
-  }) async {
+  }) => _writeOperation(() async {
     final normalizedName = name.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
     if (normalizedName.isEmpty) throw const FormatException('目标名称不能为空');
     final now = _clock();
     final goal = GoodDayGoal(
-      id: 'goal_${now.microsecondsSinceEpoch.toRadixString(36)}',
+      id: _newId('goal', now),
       name: normalizedName,
       description: description,
       colorValue: colorValue,
@@ -204,14 +285,15 @@ class VaultRepository {
     );
     await _writeGoal(goal);
     return goal;
-  }
+  });
 
   Future<GoodDayGoal> updateGoal(
     GoodDayGoal goal, {
     required String name,
     required String description,
     required int colorValue,
-  }) async {
+  }) => _writeOperation(() async {
+    goal = await _currentGoal(goal);
     if (name.trim().isEmpty) throw const FormatException('目标名称不能为空');
     final updated = goal.update(
       name: name,
@@ -220,17 +302,18 @@ class VaultRepository {
     );
     await _writeGoal(updated);
     return updated;
-  }
+  });
 
-  Future<void> deleteGoal(GoodDayGoal goal) async {
+  Future<void> deleteGoal(GoodDayGoal goal) => _writeOperation(() async {
+    goal = await _currentGoal(goal);
     await initialize();
-    await _taskFile(
-      archivedGoalsDirectory,
-      goal.id,
-    ).writeAsString(goal.toMarkdown(), flush: true);
+    await SafeFile.write(
+      _taskFile(archivedGoalsDirectory, goal.id),
+      goal.toMarkdown(),
+    );
     final activeFile = _taskFile(goalsDirectory, goal.id);
     if (await activeFile.exists()) await activeFile.delete();
-  }
+  });
 
   Future<List<GoodDayPlan>> loadPlans() async {
     await initialize();
@@ -241,8 +324,11 @@ class VaultRepository {
       }
       try {
         plans.add(GoodDayPlan.fromMarkdown(await entity.readAsString()));
+        _unreadableFiles.remove(entity.path);
       } on FormatException {
-        // Keep malformed or hand-written files untouched.
+        _unreadableFiles.add(entity.path);
+      } on FileSystemException {
+        _unreadableFiles.add(entity.path);
       }
     }
     _sortPlans(plans);
@@ -253,7 +339,7 @@ class VaultRepository {
     required String title,
     required DateTime deadline,
     String? goalId,
-  }) async {
+  }) => _writeOperation(() async {
     final normalizedTitle = title.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
     if (normalizedTitle.isEmpty) throw const FormatException('计划名称不能为空');
     final now = _clock();
@@ -266,7 +352,7 @@ class VaultRepository {
       throw const FormatException('截止日期不能早于今天');
     }
     final plan = GoodDayPlan(
-      id: 'plan_${now.microsecondsSinceEpoch.toRadixString(36)}',
+      id: _newId('plan', now),
       title: normalizedTitle,
       createdAt: now,
       deadline: normalizedDeadline,
@@ -274,13 +360,15 @@ class VaultRepository {
     );
     await _writePlan(plan);
     return plan;
-  }
+  });
 
-  Future<GoodDayPlan> setPlanCompleted(GoodDayPlan plan, bool completed) async {
-    final updated = plan.setCompleted(completed, _clock());
-    await _writePlan(updated);
-    return updated;
-  }
+  Future<GoodDayPlan> setPlanCompleted(GoodDayPlan plan, bool completed) =>
+      _writeOperation(() async {
+        plan = await _currentPlan(plan);
+        final updated = plan.setCompleted(completed, _clock());
+        await _writePlan(updated);
+        return updated;
+      });
 
   Future<GoodDayPlan> updatePlan(
     GoodDayPlan plan, {
@@ -288,7 +376,8 @@ class VaultRepository {
     DateTime? deadline,
     String? goalId,
     bool clearGoal = false,
-  }) async {
+  }) => _writeOperation(() async {
+    plan = await _currentPlan(plan);
     if (title != null && title.trim().isEmpty) {
       throw const FormatException('计划名称不能为空');
     }
@@ -300,23 +389,25 @@ class VaultRepository {
     );
     await _writePlan(updated);
     return updated;
-  }
+  });
 
-  Future<void> deletePlan(GoodDayPlan plan) async {
+  Future<void> deletePlan(GoodDayPlan plan) => _writeOperation(() async {
+    plan = await _currentPlan(plan);
     await initialize();
-    await _taskFile(
-      archivedPlansDirectory,
-      plan.id,
-    ).writeAsString(plan.toMarkdown(), flush: true);
+    await SafeFile.write(
+      _taskFile(archivedPlansDirectory, plan.id),
+      plan.toMarkdown(),
+    );
     final activeFile = _taskFile(plansDirectory, plan.id);
     if (await activeFile.exists()) await activeFile.delete();
-  }
+  });
 
   Future<GoodDayTask> updateTaskDetails(
     GoodDayTask task, {
     required String title,
     required String notes,
-  }) async {
+  }) => _writeOperation(() async {
+    task = await _currentTask(task);
     if (title.trim().isEmpty) {
       throw const FormatException('任务内容不能为空');
     }
@@ -324,31 +415,33 @@ class VaultRepository {
     await _writeTask(updated);
     await _syncDaily(await _readTasks(tasksDirectory), _clock());
     return updated;
-  }
+  });
 
-  Future<GoodDayTask> addSubtask(GoodDayTask task, String title) async {
-    final normalizedTitle = title.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
-    if (normalizedTitle.isEmpty) {
-      throw const FormatException('子任务内容不能为空');
-    }
-    final now = _clock();
-    final updated = task.addSubtask(
-      GoodDaySubtask(
-        id: 'sub_${now.microsecondsSinceEpoch.toRadixString(36)}',
-        title: normalizedTitle,
-      ),
-    );
-    await _writeTask(updated);
-    await _syncDaily(await _readTasks(tasksDirectory), now);
-    return updated;
-  }
+  Future<GoodDayTask> addSubtask(GoodDayTask task, String title) =>
+      _writeOperation(() async {
+        task = await _currentTask(task);
+        final normalizedTitle = title
+            .replaceAll(RegExp(r'[\r\n]+'), ' ')
+            .trim();
+        if (normalizedTitle.isEmpty) {
+          throw const FormatException('子任务内容不能为空');
+        }
+        final now = _clock();
+        final updated = task.addSubtask(
+          GoodDaySubtask(id: _newId('sub', now), title: normalizedTitle),
+        );
+        await _writeTask(updated);
+        await _syncDaily(await _readTasks(tasksDirectory), now);
+        return updated;
+      });
 
   Future<GoodDayTask> updateSubtask(
     GoodDayTask task,
     String subtaskId, {
     String? title,
     bool? isCompleted,
-  }) async {
+  }) => _writeOperation(() async {
+    task = await _currentTask(task);
     if (title != null && title.trim().isEmpty) {
       throw const FormatException('子任务内容不能为空');
     }
@@ -361,28 +454,31 @@ class VaultRepository {
     await _writeTask(updated);
     await _syncDaily(await _readTasks(tasksDirectory), now);
     return updated;
-  }
+  });
 
-  Future<GoodDayTask> removeSubtask(GoodDayTask task, String subtaskId) async {
-    final now = _clock();
-    final updated = task.removeSubtask(subtaskId);
-    await _writeTask(updated);
-    await _syncDaily(await _readTasks(tasksDirectory), now);
-    return updated;
-  }
+  Future<GoodDayTask> removeSubtask(GoodDayTask task, String subtaskId) =>
+      _writeOperation(() async {
+        task = await _currentTask(task);
+        final now = _clock();
+        final updated = task.removeSubtask(subtaskId);
+        await _writeTask(updated);
+        await _syncDaily(await _readTasks(tasksDirectory), now);
+        return updated;
+      });
 
-  Future<void> deleteTask(GoodDayTask task) async {
+  Future<void> deleteTask(GoodDayTask task) => _writeOperation(() async {
+    task = await _currentTask(task);
     final now = _clock();
     final deleted = task.markDeleted(now);
     final archiveFile = _taskFile(archiveDirectory, task.id);
-    await archiveFile.writeAsString(deleted.toMarkdown(), flush: true);
+    await SafeFile.write(archiveFile, deleted.toMarkdown());
 
     final activeFile = _taskFile(tasksDirectory, task.id);
     if (await activeFile.exists()) {
       await activeFile.delete();
     }
     await _syncDaily(await _readTasks(tasksDirectory), now);
-  }
+  });
 
   Future<List<TrashItem>> loadTrash() async {
     await initialize();
@@ -403,7 +499,9 @@ class VaultRepository {
           ),
         );
       } on FormatException {
-        // Keep malformed or hand-written files untouched.
+        _unreadableFiles.add(entity.path);
+      } on FileSystemException {
+        _unreadableFiles.add(entity.path);
       }
     }
     await _appendArchivedPlans(items);
@@ -412,7 +510,7 @@ class VaultRepository {
     return items;
   }
 
-  Future<void> restoreTrashItem(TrashItem item) async {
+  Future<void> restoreTrashItem(TrashItem item) => _writeOperation(() async {
     await initialize();
     switch (item.type) {
       case TrashItemType.task:
@@ -436,9 +534,9 @@ class VaultRepository {
         );
         return;
     }
-  }
+  });
 
-  Future<void> emptyTrash() async {
+  Future<void> emptyTrash() => _writeOperation(() async {
     await initialize();
     final removedGoalIds = <String>{};
     await for (final entity in archivedGoalsDirectory.list()) {
@@ -474,7 +572,7 @@ class VaultRepository {
     await _deleteContents(archivedPlansDirectory);
     await _deleteContents(archivedGoalsDirectory);
     await _syncDaily(await _readTasks(tasksDirectory), _clock());
-  }
+  });
 
   Future<void> _appendArchivedPlans(List<TrashItem> items) async {
     await for (final entity in archivedPlansDirectory.list()) {
@@ -492,7 +590,9 @@ class VaultRepository {
           ),
         );
       } on FormatException {
-        // Keep malformed or hand-written files untouched.
+        _unreadableFiles.add(entity.path);
+      } on FileSystemException {
+        _unreadableFiles.add(entity.path);
       }
     }
   }
@@ -513,7 +613,9 @@ class VaultRepository {
           ),
         );
       } on FormatException {
-        // Keep malformed or hand-written files untouched.
+        _unreadableFiles.add(entity.path);
+      } on FileSystemException {
+        _unreadableFiles.add(entity.path);
       }
     }
   }
@@ -527,8 +629,11 @@ class VaultRepository {
       }
       try {
         tasks.add(GoodDayTask.fromMarkdown(await entity.readAsString()));
+        _unreadableFiles.remove(entity.path);
       } on FormatException {
-        // Malformed or hand-written files remain untouched to prevent data loss.
+        _unreadableFiles.add(entity.path);
+      } on FileSystemException {
+        _unreadableFiles.add(entity.path);
       }
     }
     _sort(tasks);
@@ -537,26 +642,17 @@ class VaultRepository {
 
   Future<void> _writeTask(GoodDayTask task) async {
     await tasksDirectory.create(recursive: true);
-    await _taskFile(
-      tasksDirectory,
-      task.id,
-    ).writeAsString(task.toMarkdown(), flush: true);
+    await SafeFile.write(_taskFile(tasksDirectory, task.id), task.toMarkdown());
   }
 
   Future<void> _writeGoal(GoodDayGoal goal) async {
     await goalsDirectory.create(recursive: true);
-    await _taskFile(
-      goalsDirectory,
-      goal.id,
-    ).writeAsString(goal.toMarkdown(), flush: true);
+    await SafeFile.write(_taskFile(goalsDirectory, goal.id), goal.toMarkdown());
   }
 
   Future<void> _writePlan(GoodDayPlan plan) async {
     await plansDirectory.create(recursive: true);
-    await _taskFile(
-      plansDirectory,
-      plan.id,
-    ).writeAsString(plan.toMarkdown(), flush: true);
+    await SafeFile.write(_taskFile(plansDirectory, plan.id), plan.toMarkdown());
   }
 
   Future<void> _syncDaily(List<GoodDayTask> active, DateTime now) async {
@@ -621,7 +717,7 @@ class VaultRepository {
         ? await dailyFile.readAsString()
         : '';
     final next = _replaceManagedSection(existing, managed.toString(), now);
-    await dailyFile.writeAsString(next, flush: true);
+    if (existing != next) await SafeFile.write(dailyFile, next);
   }
 
   String _replaceManagedSection(String existing, String managed, DateTime now) {
@@ -676,13 +772,14 @@ class VaultRepository {
   ) async {
     if (!await source.exists()) return;
     await destination.create(recursive: true);
-    await for (final entity in source.list()) {
+    await for (final entity in source.list(followLinks: false)) {
       final name = entity.uri.pathSegments
           .where((segment) => segment.isNotEmpty)
           .last;
       if (entity is Directory) {
         await _copyDirectory(entity, _childDirectory(destination, name));
       } else if (entity is File) {
+        if (name == 'session.lock' || name.endsWith('.tmp')) continue;
         final target = _childFile(destination, name);
         if (!await target.exists()) await entity.copy(target.path);
       }
@@ -694,7 +791,7 @@ class VaultRepository {
       throw const FileSystemException('垃圾桶中的文件不存在');
     }
     await destination.parent.create(recursive: true);
-    await source.copy(destination.path);
+    await SafeFile.write(destination, await source.readAsString());
     await source.delete();
   }
 

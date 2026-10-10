@@ -1,10 +1,11 @@
 #include "flutter_window.h"
 
+#include <flutter/standard_method_codec.h>
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
 
-FlutterWindow::FlutterWindow(const flutter::DartProject& project)
+FlutterWindow::FlutterWindow(const flutter::DartProject &project)
     : project_(project) {}
 
 FlutterWindow::~FlutterWindow() {}
@@ -25,11 +26,13 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  lifecycle_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "good_day/lifecycle",
+          &flutter::StandardMethodCodec::GetInstance());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
-  flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    this->Show();
-  });
+  flutter_controller_->engine()->SetNextFrameCallback([&]() { this->Show(); });
 
   // Flutter can complete the first frame before the "show window" callback is
   // registered. The following call ensures a frame is pending to ensure the
@@ -40,6 +43,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  lifecycle_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -51,6 +55,14 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (lifecycle_channel_) {
+    if (message == WM_POWERBROADCAST &&
+        (wparam == PBT_APMRESUMEAUTOMATIC || wparam == PBT_APMRESUMESUSPEND)) {
+      lifecycle_channel_->InvokeMethod("resume", nullptr);
+    } else if (message == WM_TIMECHANGE) {
+      lifecycle_channel_->InvokeMethod("timeChanged", nullptr);
+    }
+  }
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =
@@ -62,9 +74,9 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
 
   switch (message) {
-    case WM_FONTCHANGE:
-      flutter_controller_->engine()->ReloadSystemFonts();
-      break;
+  case WM_FONTCHANGE:
+    flutter_controller_->engine()->ReloadSystemFonts();
+    break;
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);

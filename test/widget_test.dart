@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -373,10 +374,12 @@ void main() {
 
     desktopExperience.requestSettings();
     await _flushMicrotasks(tester);
+    await tester.pumpAndSettle();
     expect(find.byKey(const Key('launch-at-startup-option')), findsOneWidget);
 
     await tester.tap(find.byTooltip('返回'));
     await _flushMicrotasks(tester);
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('关闭'));
     await _flushMicrotasks(tester);
     expect(desktopExperience.hideCount, 1);
@@ -543,19 +546,210 @@ void main() {
     expect(repository.goals.single.name, '新目标');
     expect(find.text('垃圾桶是空的'), findsOneWidget);
   });
+  testWidgets(
+    'immediate navigation saves the task and edited subtask before disposal',
+    (tester) async {
+      final repository = _MemoryRepository();
+      var task = await repository.addTask('原任务');
+      task = await repository.addSubtask(task, '原子任务');
+      await tester.pumpWidget(
+        GoodDayApp(
+          repository: repository,
+          settingsController: AppSettingsController.inMemory(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(Key('task-content-${task.id}')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(Key('task-title-${task.id}')),
+        '马上切换也要保存',
+      );
+      await tester.enterText(
+        find.byKey(Key('subtask-title-${task.id}-${task.subtasks.single.id}')),
+        '子任务也保存',
+      );
+      await tester.tap(find.byKey(const Key('nav-plans')));
+      await tester.pumpAndSettle();
+      expect(repository.tasks.single.title, '马上切换也要保存');
+      expect(repository.tasks.single.subtasks.single.title, '子任务也保存');
+      expect(find.byKey(Key('task-title-${task.id}')), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('failed saves keep the editor open and retry allows navigation', (
+    tester,
+  ) async {
+    final repository = _FailingEditRepository();
+    final task = await repository.addTask('仍在磁盘的标题');
+    await tester.pumpWidget(
+      GoodDayApp(
+        repository: repository,
+        settingsController: AppSettingsController.inMemory(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(Key('task-content-${task.id}')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(Key('task-title-${task.id}')), '失败后也不能丢');
+    await tester.tap(find.byKey(const Key('nav-plans')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(Key('task-title-${task.id}')), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(Key('task-title-${task.id}')))
+          .controller!
+          .text,
+      '失败后也不能丢',
+    );
+    expect(repository.tasks.single.title, '仍在磁盘的标题');
+    repository.fail = false;
+    await tester.tap(find.byKey(const Key('nav-plans')));
+    await tester.pumpAndSettle();
+    expect(repository.tasks.single.title, '失败后也不能丢');
+    expect(find.byKey(Key('task-title-${task.id}')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('typing during an in-flight save persists the newest revision', (
+    tester,
+  ) async {
+    final repository = _SlowEditRepository();
+    final task = await repository.addTask('开始');
+    await tester.pumpWidget(
+      GoodDayApp(
+        repository: repository,
+        settingsController: AppSettingsController.inMemory(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(Key('task-content-${task.id}')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(Key('task-title-${task.id}')), '第一次编辑');
+    await tester.pump(const Duration(milliseconds: 650));
+    await tester.pump();
+    expect(repository.started, isTrue);
+    await tester.enterText(
+      find.byKey(Key('task-title-${task.id}')),
+      '保存过程中继续输入',
+    );
+    await tester.tap(find.byKey(const Key('nav-plans')));
+    repository.gate.complete();
+    await tester.pumpAndSettle();
+    expect(repository.tasks.single.title, '保存过程中继续输入');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'hiding the window flushes an edit without waiting for debounce',
+    (tester) async {
+      final repository = _MemoryRepository();
+      final desktop = _FakeDesktopExperience();
+      final task = await repository.addTask('关闭前');
+      await tester.pumpWidget(
+        GoodDayApp(
+          repository: repository,
+          settingsController: AppSettingsController.inMemory(),
+          desktopExperience: desktop,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(Key('task-content-${task.id}')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(Key('task-title-${task.id}')), '关闭后保留');
+      await desktop.hideWindow();
+      await tester.pumpAndSettle();
+      expect(repository.tasks.single.title, '关闭后保留');
+      expect(desktop.hideCount, 1);
+    },
+  );
+
+  testWidgets(
+    'a missing plan deadline prevents navigation and preserves its draft',
+    (tester) async {
+      final repository = _MemoryRepository();
+      await tester.pumpWidget(
+        GoodDayApp(
+          repository: repository,
+          settingsController: AppSettingsController.inMemory(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('nav-plans')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('add-plan-button')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('new-plan-title')),
+        '还没选日期的计划',
+      );
+      await tester.tap(find.byKey(const Key('nav-today')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('new-plan-title')), findsOneWidget);
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('new-plan-title')))
+            .controller!
+            .text,
+        '还没选日期的计划',
+      );
+      expect(repository.plans, isEmpty);
+    },
+  );
+
+  testWidgets(
+    'midnight refresh and resume roll tasks once and exclude yesterday completion',
+    (tester) async {
+      var now = DateTime(2026, 9, 8, 23, 59, 55);
+      final repository = _RolloverRepository(clock: () => now);
+      final desktop = _FakeDesktopExperience();
+      await repository.addTask('留到明天');
+      await repository.setCompleted(await repository.addTask('昨天完成'), true);
+      await tester.pumpWidget(
+        GoodDayApp(
+          repository: repository,
+          settingsController: AppSettingsController.inMemory(),
+          desktopExperience: desktop,
+          clock: () => now,
+        ),
+      );
+      await tester.pumpAndSettle();
+      now = DateTime(2026, 9, 9, 0, 0, 5);
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+      expect(find.text('9月9日  星期三'), findsOneWidget);
+      expect(find.text('留到明天'), findsOneWidget);
+      expect(find.text('昨天完成'), findsNothing);
+      expect(dateKey(repository.tasks.first.scheduledDate), '2026-09-09');
+      now = DateTime(2026, 9, 11, 8);
+      desktop.refreshRequests.value++;
+      await tester.pumpAndSettle();
+      expect(find.text('9月11日  星期五'), findsOneWidget);
+      expect(dateKey(repository.tasks.first.scheduledDate), '2026-09-11');
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
 
 class _FakeDesktopExperience implements DesktopExperience {
   @override
   final ValueNotifier<int> openSettingsRequests = ValueNotifier<int>(0);
 
+  @override
+  final ValueNotifier<int> refreshRequests = ValueNotifier<int>(0);
+  Future<bool> Function()? saveGuard;
+  @override
+  void setSaveGuard(Future<bool> Function()? guard) => saveGuard = guard;
   bool launchAtStartup = false;
   int hideCount = 0;
 
   void requestSettings() => openSettingsRequests.value++;
 
   @override
-  Future<void> hideWindow() async => hideCount++;
+  Future<void> hideWindow() async {
+    if (await (saveGuard?.call() ?? Future.value(true))) hideCount++;
+  }
 
   @override
   Future<bool> isLaunchAtStartupEnabled() async => launchAtStartup;
@@ -572,7 +766,11 @@ Future<void> _flushMicrotasks(WidgetTester tester) async {
 }
 
 class _MemoryRepository extends VaultRepository {
-  _MemoryRepository() : super(Directory('memory-vault'));
+  _MemoryRepository({DateTime Function()? clock})
+    : super(
+        Directory('memory-vault'),
+        clock: clock ?? () => DateTime(2026, 9, 8, 9, 30),
+      );
 
   final List<GoodDayTask> tasks = [];
   final List<GoodDayGoal> goals = [];
@@ -801,5 +999,49 @@ class _MemoryRepository extends VaultRepository {
     final index = tasks.indexWhere((item) => item.id == updated.id);
     tasks[index] = updated;
     return updated;
+  }
+}
+
+class _FailingEditRepository extends _MemoryRepository {
+  bool fail = true;
+  @override
+  Future<GoodDayTask> updateTaskDetails(
+    GoodDayTask task, {
+    required String title,
+    required String notes,
+  }) async {
+    if (fail) throw const FileSystemException('模拟磁盘不可写');
+    return super.updateTaskDetails(task, title: title, notes: notes);
+  }
+}
+
+class _SlowEditRepository extends _MemoryRepository {
+  final gate = Completer<void>();
+  bool started = false;
+  @override
+  Future<GoodDayTask> updateTaskDetails(
+    GoodDayTask task, {
+    required String title,
+    required String notes,
+  }) async {
+    if (!started) {
+      started = true;
+      await gate.future;
+    }
+    return super.updateTaskDetails(task, title: title, notes: notes);
+  }
+}
+
+class _RolloverRepository extends _MemoryRepository {
+  _RolloverRepository({required super.clock});
+  @override
+  Future<List<GoodDayTask>> loadTasks() async {
+    for (var index = 0; index < tasks.length; index++) {
+      if (!tasks[index].isCompleted &&
+          tasks[index].scheduledDate.isBefore(now)) {
+        tasks[index] = tasks[index].rollForward(now);
+      }
+    }
+    return List.of(tasks);
   }
 }
