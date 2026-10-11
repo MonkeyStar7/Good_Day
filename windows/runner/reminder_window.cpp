@@ -209,6 +209,9 @@ bool ReminderWindow::Show(const flutter::EncodableMap &data) {
   }
   const MARGINS shadow{1, 1, 1, 1};
   DwmExtendFrameIntoClientArea(window_, &shadow);
+  SetWindowPos(window_, nullptr, 0, 0, 0, 0,
+               SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
+                   SWP_FRAMECHANGED);
   const wchar_t *labels[] = {L"5 分钟后", L"10 分钟后", L"30 分钟后", L"知道了",
                              L"关闭，5 分钟后提醒"};
   for (int i = 0; i < 5; ++i) {

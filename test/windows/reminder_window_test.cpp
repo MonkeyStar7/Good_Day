@@ -126,6 +126,11 @@ int main(int argc, char **argv) {
           "old system title bar still present");
     RECT bounds{};
     GetWindowRect(popup, &bounds);
+    RECT client{};
+    GetClientRect(popup, &client);
+    Check(client.right == bounds.right - bounds.left &&
+              client.bottom == bounds.bottom - bounds.top,
+          "system resize frame still reduces the card content");
     MONITORINFO monitor{};
     monitor.cbSize = sizeof(monitor);
     GetMonitorInfoW(MonitorFromWindow(owner, MONITOR_DEFAULTTOPRIMARY),
