@@ -8,10 +8,13 @@ namespace {
 constexpr wchar_t kClassName[] = L"GoodDay.Reminder";
 constexpr wchar_t kButtonProcedure[] = L"GoodDay.Reminder.ButtonProc";
 constexpr wchar_t kHovered[] = L"GoodDay.Reminder.Hovered";
-const Gdiplus::Color kPaper(255, 249, 249, 244);
-const Gdiplus::Color kInk(255, 36, 44, 39);
-const Gdiplus::Color kMuted(255, 104, 115, 106);
-const Gdiplus::Color kGreen(255, 61, 96, 74);
+Gdiplus::Color Mix(int rgb, float amount, BYTE neutral = 255) {
+  const auto blend = [amount, neutral](int channel) {
+    return static_cast<BYTE>(neutral + (channel - neutral) * amount);
+  };
+  return Gdiplus::Color(255, blend((rgb >> 16) & 255), blend((rgb >> 8) & 255),
+                        blend(rgb & 255));
+}
 class DrawingSession {
 public:
   DrawingSession() {
@@ -149,6 +152,13 @@ bool ReminderWindow::Show(const flutter::EncodableMap &data) {
     SetForegroundWindow(window_);
     return true;
   }
+  const auto accent = data.find(flutter::EncodableValue("accentRgb"));
+  accent_rgb_ = 0x365D46;
+  if (accent != data.end()) {
+    const auto value = std::get_if<int32_t>(&accent->second);
+    if (value && *value >= 0 && *value <= 0xFFFFFF)
+      accent_rgb_ = *value;
+  }
   title_ = Text(data, "title");
   time_ = Text(data, "time");
   date_ = Text(data, "date");
@@ -274,6 +284,9 @@ void ReminderWindow::Submit(int minutes) {
                          std::make_unique<flutter::EncodableValue>(minutes));
 }
 void ReminderWindow::PaintButton(const DRAWITEMSTRUCT &item) {
+  const auto kPaper = Mix(accent_rgb_, 0.09f);
+  const auto kMuted = Mix(accent_rgb_, 0.58f, 120);
+  const auto kAccent = Mix(accent_rgb_, 1.0f);
   Gdiplus::Graphics graphics(item.hDC);
   graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
   graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
@@ -286,8 +299,8 @@ void ReminderWindow::PaintButton(const DRAWITEMSTRUCT &item) {
   if (item.CtlID == 105) {
     if (hover || pressed)
       Round(graphics, {1, 1, width - 2, height - 2},
-            static_cast<float>(Scale(9)), Gdiplus::Color(255, 234, 238, 230));
-    Gdiplus::Pen pen(disabled ? Gdiplus::Color(255, 178, 184, 176) : kMuted,
+            static_cast<float>(Scale(9)), Mix(accent_rgb_, 0.16f));
+    Gdiplus::Pen pen(disabled ? Mix(accent_rgb_, 0.42f) : kMuted,
                      static_cast<float>(Scale(2)));
     pen.SetStartCap(Gdiplus::LineCapRound);
     pen.SetEndCap(Gdiplus::LineCapRound);
@@ -299,15 +312,15 @@ void ReminderWindow::PaintButton(const DRAWITEMSTRUCT &item) {
                       mid_y - offset);
   } else {
     const bool primary = item.CtlID == 104;
-    const Gdiplus::Color fill =
-        primary ? (disabled  ? Gdiplus::Color(255, 153, 169, 157)
-                   : pressed ? Gdiplus::Color(255, 44, 75, 56)
-                   : hover   ? Gdiplus::Color(255, 74, 114, 89)
-                             : kGreen)
-                : (pressed ? Gdiplus::Color(255, 221, 229, 215)
-                   : hover ? Gdiplus::Color(255, 229, 235, 224)
-                           : Gdiplus::Color(255, 239, 241, 233));
-    const Gdiplus::Color border(255, 220, 226, 213);
+    const Gdiplus::Color fill = primary
+                                    ? (disabled  ? Mix(accent_rgb_, 0.55f)
+                                       : pressed ? Mix(accent_rgb_, 0.85f, 0)
+                                       : hover   ? Mix(accent_rgb_, 0.87f)
+                                                 : kAccent)
+                                    : (pressed ? Mix(accent_rgb_, 0.24f)
+                                       : hover ? Mix(accent_rgb_, 0.19f)
+                                               : Mix(accent_rgb_, 0.12f));
+    const auto border = Mix(accent_rgb_, 0.29f);
     Round(graphics, {1, 1, width - 2, height - 2},
           static_cast<float>(Scale(10)), fill, primary ? nullptr : &border);
     const wchar_t *labels[] = {L"5 分钟后", L"10 分钟后", L"30 分钟后",
@@ -315,17 +328,21 @@ void ReminderWindow::PaintButton(const DRAWITEMSTRUCT &item) {
     Write(graphics, labels[item.CtlID - 101], {0, 0, width, height},
           static_cast<float>(Scale(14)),
           primary    ? Gdiplus::Color(255, 255, 255, 255)
-          : disabled ? Gdiplus::Color(255, 158, 166, 156)
-                     : kGreen,
+          : disabled ? Mix(accent_rgb_, 0.48f)
+                     : kAccent,
           primary, true);
   }
   if ((item.itemState & ODS_FOCUS) != 0 && !disabled) {
-    Gdiplus::Color outline(180, 122, 145, 115);
+    auto outline = Mix(accent_rgb_, 0.65f);
     Round(graphics, {2, 2, width - 4, height - 4}, static_cast<float>(Scale(9)),
           Gdiplus::Color(0, 0, 0, 0), &outline);
   }
 }
 void ReminderWindow::Paint() {
+  const auto kPaper = Mix(accent_rgb_, 0.09f);
+  const auto kInk = Mix(accent_rgb_, 0.52f, 32);
+  const auto kMuted = Mix(accent_rgb_, 0.58f, 120);
+  const auto kAccent = Mix(accent_rgb_, 1.0f);
   PAINTSTRUCT paint{};
   HDC dc = BeginPaint(window_, &paint);
   RECT bounds{};
@@ -343,22 +360,22 @@ void ReminderWindow::Paint() {
     const float right = static_cast<float>(bounds.right),
                 bottom = static_cast<float>(bounds.bottom);
     Round(graphics, {px(32), px(28), px(42), px(42)}, px(13),
-          Gdiplus::Color(255, 227, 235, 220));
-    Gdiplus::Pen clock_pen(kGreen, px(2));
+          Mix(accent_rgb_, 0.20f));
+    Gdiplus::Pen clock_pen(kAccent, px(2));
     clock_pen.SetStartCap(Gdiplus::LineCapRound);
     clock_pen.SetEndCap(Gdiplus::LineCapRound);
     graphics.DrawEllipse(&clock_pen, px(44), px(40), px(18), px(18));
     graphics.DrawLine(&clock_pen, px(53), px(44), px(53), px(49));
     graphics.DrawLine(&clock_pen, px(53), px(49), px(57), px(51));
     Write(graphics, L"GOOD DAY", {px(86), px(29), right - px(160), px(18)},
-          px(12), kGreen, true, false, L"Segoe UI");
+          px(12), kAccent, true, false, L"Segoe UI");
     Write(graphics, L"待办提醒", {px(86), px(49), right - px(160), px(22)},
           px(13), kMuted);
     Write(graphics, title_, {px(32), px(100), right - px(64), px(80)}, px(27),
           kInk, true);
     Round(graphics, {px(32), px(194), right - px(64), px(74)}, px(14),
-          Gdiplus::Color(255, 236, 240, 229));
-    Write(graphics, clock_, {px(48), px(208), px(116), px(44)}, px(30), kGreen,
+          Mix(accent_rgb_, 0.16f));
+    Write(graphics, clock_, {px(48), px(208), px(116), px(44)}, px(30), kAccent,
           true, false, L"Segoe UI");
     Write(graphics, date_, {px(178), px(206), right - px(226), px(22)}, px(13),
           kInk);
@@ -371,7 +388,7 @@ void ReminderWindow::Paint() {
       Write(graphics, error_,
             {px(32), bottom - px(128), right - px(64), px(36)}, px(12),
             saving_ ? kMuted : Gdiplus::Color(255, 156, 65, 49));
-    Gdiplus::Pen line(Gdiplus::Color(255, 226, 230, 220), 1);
+    Gdiplus::Pen line(Mix(accent_rgb_, 0.29f), 1);
     graphics.DrawLine(&line, px(32), bottom - px(86), right - px(32),
                       bottom - px(86));
     Gdiplus::Graphics target(dc);

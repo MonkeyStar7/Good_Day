@@ -99,6 +99,16 @@ void main() {
         );
         expect(filter.height, greaterThanOrEqualTo(46));
         expect(filter.width, greaterThan(100));
+        await tester.tap(find.byKey(const Key('browse-task-old')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('task-repeat-settings-old')), findsNothing);
+        expect(
+          find.byKey(const Key('task-reminder-settings-old')),
+          findsNothing,
+        );
+        expect(find.text('不重复'), findsNothing);
+        expect(find.text('不提醒我'), findsNothing);
+        expect(find.text('删除本次'), findsOneWidget);
         await tester.enterText(find.byKey(const Key('task-search')), '不存在');
         await tester.pumpAndSettle();
         expect(find.text('这个范围没有任务'), findsOneWidget);

@@ -1,9 +1,11 @@
+import 'app_colors.dart';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 
 import 'models/good_day_task.dart';
-import 'models/repeat_schedule.dart';
+import 'models/good_day_event.dart';
 
 /// Options stay beside the task; a custom draft is committed explicitly.
 class TaskInlineOptions extends StatefulWidget {
@@ -103,15 +105,7 @@ class _TaskInlineOptionsState extends State<TaskInlineOptions> {
     widget.onEditingChanged(true);
   }
 
-  String get _reminderLabel {
-    final reminder = widget.task.reminder;
-    if (_open) return '提醒我';
-    if (reminder == null) return '不提醒我';
-    if (!reminder.enabled) {
-      return reminder.handledThrough == null ? '提醒已暂停' : '已提醒';
-    }
-    return '提醒我 · ${reminder.startsAt.month}/${reminder.startsAt.day} ${reminder.startsAt.hour.toString().padLeft(2, '0')}:${reminder.startsAt.minute.toString().padLeft(2, '0')}';
-  }
+  String get _reminderLabel => '提醒我';
 
   @override
   Widget build(BuildContext context) {
@@ -137,15 +131,15 @@ class _TaskInlineOptionsState extends State<TaskInlineOptions> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
             decoration: BoxDecoration(
-              border: Border.all(color: const Color(0xFFD7DFD2)),
+              border: Border.all(color: context.appColors.line),
               borderRadius: BorderRadius.circular(9),
             ),
             child: Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.event_repeat,
                   size: 16,
-                  color: Color(0xFF626C64),
+                  color: context.appColors.muted,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -197,10 +191,18 @@ class _TaskInlineOptionsState extends State<TaskInlineOptions> {
             ),
           ],
         ),
+        if (!_open && widget.task.reminder != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 8),
+            child: Text(
+              '${eventDateTimeLabel(widget.task.reminder!.startsAt)} · ${_enabled ? '已开启' : '已暂停或已提醒'}',
+              style: TextStyle(fontSize: 11, color: context.appColors.muted),
+            ),
+          ),
         if (_open) ...[
-          const Text(
+          Text(
             '多久以后提醒',
-            style: TextStyle(fontSize: 12, color: Color(0xFF626C64)),
+            style: TextStyle(fontSize: 12, color: context.appColors.muted),
           ),
           const SizedBox(height: 6),
           Wrap(
@@ -316,7 +318,7 @@ class InlineReminderWheels extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(8),
     decoration: BoxDecoration(
-      color: const Color(0xFFF5F5F0),
+      color: context.appColors.paper,
       borderRadius: BorderRadius.circular(12),
     ),
     child: Column(
@@ -433,7 +435,7 @@ class _NumberWheelState extends State<_NumberWheel> {
     children: [
       Text(
         widget.name,
-        style: const TextStyle(fontSize: 11, color: Color(0xFF626C64)),
+        style: TextStyle(fontSize: 11, color: context.appColors.muted),
       ),
       SizedBox(
         height: 84,
@@ -466,6 +468,9 @@ class _NumberWheelState extends State<_NumberWheel> {
               },
               child: IgnorePointer(
                 child: CupertinoPicker.builder(
+                  selectionOverlay: CupertinoPickerDefaultSelectionOverlay(
+                    background: context.appColors.hover,
+                  ),
                   scrollController: _controller,
                   itemExtent: 28,
                   useMagnifier: true,
@@ -477,7 +482,7 @@ class _NumberWheelState extends State<_NumberWheel> {
                       widget.label(index),
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         fontSize: 15,
-                        color: const Color(0xFF242C27),
+                        color: context.appColors.ink,
                       ),
                     ),
                   ),

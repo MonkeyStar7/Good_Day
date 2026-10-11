@@ -7,7 +7,7 @@ import 'models/good_day_task.dart';
 import 'models/repeat_schedule.dart';
 import 'models/task_series.dart';
 import 'models/good_day_goal.dart';
-import 'task_inline_options.dart';
+import 'app_colors.dart';
 
 enum TaskView { completed, uncompleted }
 
@@ -47,8 +47,7 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
   bool _busy = true;
   String? _error;
   Timer? _refreshTimer;
-  bool _editing = false;
-  final Set<String> _optionEditors = {};
+  final bool _editing = false;
   late DateTime _loadedDate;
   @override
   void initState() {
@@ -124,19 +123,6 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
     }
   }
 
-  Future<void> _saveOptions(
-    GoodDayTask task,
-    EventRepeat repeat,
-    DateTime? time,
-  ) async {
-    await widget.repository.saveTaskOptions(
-      task: task,
-      repeat: repeat,
-      reminderAt: time,
-    );
-    await _load();
-  }
-
   Future<void> _stop(GoodDayTask task) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -208,12 +194,12 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
   Widget build(BuildContext context) => PopScope(
     canPop: !_busy,
     child: Scaffold(
-      backgroundColor: const Color(0xFFF5F5F0),
+      backgroundColor: context.appColors.paper,
       appBar: widget.embedded
           ? null
           : AppBar(
               title: const Text('待办历史'),
-              backgroundColor: const Color(0xFFF5F5F0),
+              backgroundColor: context.appColors.paper,
             ),
       body: Column(
         children: [
@@ -238,11 +224,11 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
                                   horizontal: 8,
                                 ),
                                 backgroundColor: _view == view
-                                    ? const Color(0xFFE3EBDD)
-                                    : const Color(0xFFF5F5F0),
+                                    ? context.appColors.panel
+                                    : context.appColors.paper,
                                 foregroundColor: _view == view
-                                    ? const Color(0xFF3D604A)
-                                    : const Color(0xFF626C64),
+                                    ? context.appColors.accent
+                                    : context.appColors.muted,
                                 textStyle: Theme.of(context)
                                     .textTheme
                                     .labelLarge
@@ -250,13 +236,13 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
                                       fontSize: 15,
                                       fontWeight: FontWeight.w600,
                                       color: _view == view
-                                          ? const Color(0xFF3D604A)
-                                          : const Color(0xFF626C64),
+                                          ? context.appColors.accent
+                                          : context.appColors.muted,
                                     ),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(11),
-                                  side: const BorderSide(
-                                    color: Color(0xFFDDE2D6),
+                                  side: BorderSide(
+                                    color: context.appColors.line,
                                   ),
                                 ),
                               ),
@@ -282,15 +268,15 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
                       vertical: 12,
                     ),
                     prefixIcon: const Icon(Icons.search, size: 18),
-                    hintStyle: const TextStyle(
+                    hintStyle: TextStyle(
                       fontSize: 12,
-                      color: Color(0xFF929992),
+                      color: context.appColors.muted,
                     ),
                     hintText: '搜索任务、备注或子任务',
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(
-                        color: Color(0xFFDDE2D6),
+                      borderSide: BorderSide(
+                        color: context.appColors.line,
                         width: 0.7,
                       ),
                     ),
@@ -342,7 +328,7 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
                                           )
                                           .firstOrNull ==
                                       null
-                                  ? const Color(0xFF242C27)
+                                  ? context.appColors.ink
                                   : Color(
                                       widget.goals
                                           .firstWhere(
@@ -395,33 +381,6 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
                                         );
                                       }),
                               ),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 8,
-                              ),
-                              child: TaskInlineOptions(
-                                key: ValueKey('history-options-${task.id}'),
-                                task: task,
-                                enabled:
-                                    _optionEditors.isEmpty ||
-                                    _optionEditors.contains(task.id),
-                                clock: widget.clock,
-                                onEditingChanged: (editing) {
-                                  setState(() {
-                                    if (editing) {
-                                      _optionEditors.add(task.id);
-                                    } else {
-                                      _optionEditors.remove(task.id);
-                                    }
-                                    _editing = _optionEditors.isNotEmpty;
-                                  });
-                                  widget.onEditingChanged(_editing);
-                                },
-                                onSave: (repeat, time) =>
-                                    _saveOptions(task, repeat, time),
-                              ),
-                            ),
                             Wrap(
                               spacing: 6,
                               children: [

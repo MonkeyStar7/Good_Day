@@ -391,6 +391,11 @@ void main() {
 
 class _Desktop implements DesktopExperience {
   @override
+  final ValueNotifier<bool> windowPinned = ValueNotifier(false);
+  @override
+  Future<void> setWindowPinned(bool enabled) async =>
+      windowPinned.value = enabled;
+  @override
   final ValueNotifier<int> openSettingsRequests = ValueNotifier(0);
   @override
   final ValueNotifier<int> refreshRequests = ValueNotifier(0);
@@ -414,8 +419,9 @@ class _Desktop implements DesktopExperience {
     GoodDayEvent event,
     DateTime occurrence,
     DateTime now,
-    Future<void> Function(Duration? snooze) resolve,
-  ) async => false;
+    Future<void> Function(Duration? snooze) resolve, {
+    int accentRgb = 0x365D46,
+  }) async => false;
 
   @override
   Future<void> hideWindow() async {}

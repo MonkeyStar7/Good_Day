@@ -19,6 +19,153 @@ import 'package:good_day/task_browser_page.dart';
 
 void main() {
   testWidgets(
+    'pin reflects native state, survives routes and handles failure',
+    (tester) async {
+      final desktop = _FakeDesktopExperience();
+      await tester.pumpWidget(
+        GoodDayApp(
+          repository: _MemoryRepository(),
+          settingsController: AppSettingsController.inMemory(),
+          desktopExperience: desktop,
+        ),
+      );
+      await tester.pumpAndSettle();
+      IconButton button() =>
+          tester.widget<IconButton>(find.byKey(const Key('window-pin')));
+      expect(button().isSelected, false);
+      await tester.tap(find.byKey(const Key('window-pin')));
+      await tester.pumpAndSettle();
+      expect(desktop.windowPinned.value, true);
+      expect(button().isSelected, true);
+      await tester.tap(find.byKey(const Key('settings-button')));
+      await tester.pumpAndSettle();
+      expect(button().isSelected, true);
+      desktop.failPin = true;
+      await tester.tap(find.byKey(const Key('window-pin')));
+      await tester.pumpAndSettle();
+      expect(button().isSelected, true);
+      expect(find.text('置顶设置未成功，请重试'), findsOneWidget);
+      desktop.failPin = false;
+      await tester.tap(find.byKey(const Key('window-pin')));
+      await tester.pumpAndSettle();
+      expect(button().isSelected, false);
+    },
+  );
+
+  testWidgets(
+    'period text navigation and empty/completed sections stay uncluttered',
+    (tester) async {
+      final repository = _MemoryRepository();
+      await tester.pumpWidget(
+        GoodDayApp(
+          repository: repository,
+          settingsController: AppSettingsController.inMemory(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(ChoiceChip), findsNothing);
+      expect(find.byKey(const Key('task-section-进行中')), findsNothing);
+      expect(find.byKey(const Key('task-section-已完成')), findsNothing);
+      expect(find.text('添加待办任务'), findsOneWidget);
+      expect(
+        find.text('待办'),
+        findsOneWidget,
+      ); // The left note remains the sole page label.
+      Text period(String name) => tester.widget<Text>(
+        find.descendant(
+          of: find.byKey(Key('task-period-$name')),
+          matching: find.byType(Text),
+        ),
+      );
+      expect(
+        period('day').style!.fontSize,
+        greaterThan(period('week').style!.fontSize!),
+      );
+      await tester.tap(find.byKey(const Key('task-period-week')));
+      await tester.pumpAndSettle();
+      expect(
+        period('week').style!.fontSize,
+        greaterThan(period('day').style!.fontSize!),
+      );
+      await tester.tap(find.byKey(const Key('task-period-day')));
+      await tester.tap(find.byKey(const Key('add-task-button')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('new-task-field')), '完成一个任务');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(Key('task-checkbox-${repository.tasks.first.id}')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('task-section-已完成')), findsOneWidget);
+      expect(
+        tester.getRect(find.byKey(const Key('task-section-已完成'))).top -
+            tester.getRect(find.byKey(const Key('add-task-button'))).bottom,
+        greaterThanOrEqualTo(48),
+      );
+    },
+  );
+
+  testWidgets(
+    'every accent recolors paper notes and borders while preserving goal colors',
+    (tester) async {
+      final settings = AppSettingsController.inMemory();
+      final repository = _MemoryRepository();
+      final goal = await repository.addGoal(
+        name: '考研',
+        description: '',
+        colorValue: 0xFF8779A6,
+      );
+      final task = await repository.assignTaskGoal(
+        await repository.addTask('数学'),
+        goal.id,
+      );
+      await tester.pumpWidget(
+        GoodDayApp(repository: repository, settingsController: settings),
+      );
+      await tester.pumpAndSettle();
+      Color? lastPaper, lastNote, lastBorder;
+      for (final accent in AppAccent.values) {
+        await settings.setAccent(accent);
+        await tester.pumpAndSettle();
+        final box =
+            tester
+                    .widget<Container>(find.byKey(const Key('main-paper')))
+                    .decoration
+                as BoxDecoration;
+        final note =
+            tester
+                    .widget<AnimatedContainer>(
+                      find.ancestor(
+                        of: find.byKey(const Key('nav-today')),
+                        matching: find.byType(AnimatedContainer),
+                      ),
+                    )
+                    .decoration
+                as BoxDecoration;
+        final border = (box.border as Border).top.color;
+        if (lastPaper != null) {
+          expect(box.color, isNot(lastPaper));
+          expect(note.color, isNot(lastNote));
+          expect(border, isNot(lastBorder));
+        }
+        lastPaper = box.color;
+        lastNote = note.color;
+        lastBorder = border;
+        final label = tester.widget<Text>(
+          find
+              .descendant(
+                of: find.byKey(Key('task-content-${task.id}')),
+                matching: find.byType(Text),
+              )
+              .first,
+        );
+        expect(label.style!.color, Color(goal.colorValue));
+      }
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
     'period pages separate ongoing tasks and aggregate completions, with manual rescheduling',
     (tester) async {
       var now = DateTime(2026, 9, 8, 9, 30);
@@ -170,12 +317,13 @@ void main() {
       );
       await repository.deleteTask(await repository.addTask('整理本周错题'));
       final boundaryKey = GlobalKey();
+      final previewSettings = AppSettingsController.inMemory();
       await tester.pumpWidget(
         RepaintBoundary(
           key: boundaryKey,
           child: GoodDayApp(
             repository: repository,
-            settingsController: AppSettingsController.inMemory(),
+            settingsController: previewSettings,
             desktopExperience: _FakeDesktopExperience(),
           ),
         ),
@@ -207,6 +355,17 @@ void main() {
       }
 
       await inspect('01-today');
+      if (capture) {
+        await previewSettings.setAccent(AppAccent.blueGrey);
+        await inspect('13-blue-theme');
+        await previewSettings.setAccent(AppAccent.warmBrown);
+        await inspect('14-brown-theme');
+        await tester.tap(find.byKey(const Key('task-period-week')));
+        await inspect('15-empty-week');
+        await tester.tap(find.byKey(const Key('task-period-day')));
+        await previewSettings.setAccent(AppAccent.forest);
+        await tester.pumpAndSettle();
+      }
       await tester.tap(find.byKey(Key('task-content-${task.id}')));
       await inspect('04-task-detail');
       await tester.tap(find.byKey(Key('task-reminder-settings-${task.id}')));
@@ -945,7 +1104,7 @@ void main() {
       now = DateTime(2026, 9, 9, 0, 0, 5);
       await tester.pump(const Duration(seconds: 30));
       await tester.pumpAndSettle();
-      expect(find.text('9月9日  星期三'), findsOneWidget);
+      expect(find.text('9月9日  星期三'), findsNothing);
       expect(find.text('留到明天'), findsNothing);
       expect(find.text('昨天完成'), findsNothing);
       expect(dateKey(repository.tasks.first.scheduledDate), '2026-09-08');
@@ -957,7 +1116,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('task-period-day')));
       await tester.pumpAndSettle();
-      expect(find.text('9月11日  星期五'), findsOneWidget);
+      expect(find.text('9月11日  星期五'), findsNothing);
       expect(dateKey(repository.tasks.first.scheduledDate), '2026-09-08');
       expect(tester.takeException(), isNull);
     },
@@ -965,6 +1124,15 @@ void main() {
 }
 
 class _FakeDesktopExperience implements DesktopExperience {
+  @override
+  final ValueNotifier<bool> windowPinned = ValueNotifier(false);
+  bool failPin = false;
+  @override
+  Future<void> setWindowPinned(bool enabled) async {
+    if (failPin) throw StateError('pin failed');
+    windowPinned.value = enabled;
+  }
+
   @override
   final ValueNotifier<int> openSettingsRequests = ValueNotifier<int>(0);
 
@@ -994,8 +1162,9 @@ class _FakeDesktopExperience implements DesktopExperience {
     GoodDayEvent event,
     DateTime occurrence,
     DateTime now,
-    Future<void> Function(Duration? snooze) resolve,
-  ) async => false;
+    Future<void> Function(Duration? snooze) resolve, {
+    int accentRgb = 0x365D46,
+  }) async => false;
 
   @override
   Future<bool> isLaunchAtStartupEnabled() async => launchAtStartup;

@@ -1,3 +1,5 @@
+import 'app_colors.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -100,10 +102,10 @@ class _BackupPageState extends State<BackupPage> {
   Widget build(BuildContext context) => PopScope(
     canPop: !_busy,
     child: Scaffold(
-      backgroundColor: const Color(0xFFF5F5F0),
+      backgroundColor: context.appColors.paper,
       appBar: AppBar(
         title: const Text('数据备份'),
-        backgroundColor: const Color(0xFFF5F5F0),
+        backgroundColor: context.appColors.paper,
       ),
       body: ListView(
         padding: const EdgeInsets.all(24),

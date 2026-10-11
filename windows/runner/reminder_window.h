@@ -27,6 +27,7 @@ private:
   HWND window_ = nullptr;
   std::array<HWND, 5> buttons_{};
   UINT dpi_ = 96;
+  int accent_rgb_ = 0x365D46;
   bool saving_ = false;
   bool owner_enabled_ = true;
   std::wstring title_, time_, date_, clock_, notes_, timing_, error_;

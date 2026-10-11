@@ -8,11 +8,16 @@ import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'models/good_day_event.dart';
+import 'data/safe_file.dart';
 
 abstract interface class DesktopExperience {
   ValueListenable<int> get openSettingsRequests;
 
   ValueListenable<int> get refreshRequests;
+
+  ValueListenable<bool> get windowPinned;
+
+  Future<void> setWindowPinned(bool enabled);
 
   void setSaveGuard(Future<bool> Function()? guard);
 
@@ -26,8 +31,9 @@ abstract interface class DesktopExperience {
     GoodDayEvent event,
     DateTime occurrence,
     DateTime now,
-    Future<void> Function(Duration? snooze) resolve,
-  );
+    Future<void> Function(Duration? snooze) resolve, {
+    int accentRgb = 0x365D46,
+  });
 
   Future<bool> isLaunchAtStartupEnabled();
 
@@ -43,6 +49,9 @@ class SystemDesktopExperience extends DesktopExperience
 
   final ValueNotifier<int> _openSettingsRequests = ValueNotifier<int>(0);
   final ValueNotifier<int> _refreshRequests = ValueNotifier<int>(0);
+  final ValueNotifier<bool> _windowPinned = ValueNotifier(false);
+  bool _reminderOnTop = false;
+  final _topmostOperations = OperationQueue();
   Future<bool> Function()? _saveGuard;
   static const _lifecycle = MethodChannel('good_day/lifecycle');
   static const _reminder = MethodChannel('good_day/reminder');
@@ -54,6 +63,16 @@ class SystemDesktopExperience extends DesktopExperience
 
   @override
   ValueListenable<int> get refreshRequests => _refreshRequests;
+
+  @override
+  ValueListenable<bool> get windowPinned => _windowPinned;
+
+  @override
+  Future<void> setWindowPinned(bool enabled) =>
+      _topmostOperations.run(() async {
+        await windowManager.setAlwaysOnTop(enabled || _reminderOnTop);
+        _windowPinned.value = enabled;
+      });
 
   @override
   void setSaveGuard(Future<bool> Function()? guard) => _saveGuard = guard;
@@ -107,15 +126,19 @@ class SystemDesktopExperience extends DesktopExperience
 
   @override
   Future<void> setReminderOnTop(bool enabled) =>
-      windowManager.setAlwaysOnTop(enabled);
+      _topmostOperations.run(() async {
+        await windowManager.setAlwaysOnTop(enabled || _windowPinned.value);
+        _reminderOnTop = enabled;
+      });
 
   @override
   Future<bool> showEventReminder(
     GoodDayEvent event,
     DateTime occurrence,
     DateTime now,
-    Future<void> Function(Duration? snooze) resolve,
-  ) async {
+    Future<void> Function(Duration? snooze) resolve, {
+    int accentRgb = 0x365D46,
+  }) async {
     final finished = Completer<void>();
     var saving = false;
     _reminder.setMethodCallHandler((call) async {
@@ -137,6 +160,7 @@ class SystemDesktopExperience extends DesktopExperience
     });
     try {
       await _reminder.invokeMethod<void>('show', {
+        'accentRgb': accentRgb,
         'title': event.title,
         'time': '事件时间：${eventDateTimeLabel(occurrence)}',
         'date':

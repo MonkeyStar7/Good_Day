@@ -1,3 +1,5 @@
+import 'app_colors.dart';
+
 import 'package:flutter/material.dart';
 
 import 'models/good_day_event.dart';
@@ -30,9 +32,9 @@ class EventsArea extends StatelessWidget {
       key: const PageStorageKey('events-list'),
       padding: EdgeInsets.zero,
       children: [
-        const Text(
+        Text(
           '到点弹窗提醒；隐藏到托盘后继续运行。',
-          style: TextStyle(fontSize: 12, color: Color(0xFF626C64)),
+          style: TextStyle(fontSize: 12, color: context.appColors.muted),
         ),
         const SizedBox(height: 12),
         OutlinedButton.icon(
@@ -54,9 +56,9 @@ class EventsArea extends StatelessWidget {
           Container(
             key: ValueKey('event-${event.id}'),
             padding: const EdgeInsets.symmetric(vertical: 12),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               border: Border(
-                bottom: BorderSide(color: Color(0xFFDEE2DA), width: 0.7),
+                bottom: BorderSide(color: context.appColors.line, width: 0.7),
               ),
             ),
             child: Column(
@@ -97,9 +99,9 @@ class EventsArea extends StatelessWidget {
                       : event.nextReminderAt(now) == null
                       ? '本次已提醒，请编辑时间以再次提醒'
                       : '下次提醒：${eventDateTimeLabel(event.nextReminderAt(now)!)}',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
-                    color: Color(0xFF626C64),
+                    color: context.appColors.muted,
                   ),
                 ),
                 Row(
@@ -120,9 +122,9 @@ class EventsArea extends StatelessWidget {
             ),
           ),
         const SizedBox(height: 12),
-        const Text(
+        Text(
           '彻底退出或关机期间不会弹窗；启动或唤醒后补提醒。重复事件只补最近一次。可在设置中开启开机启动。',
-          style: TextStyle(fontSize: 11, color: Color(0xFF626C64)),
+          style: TextStyle(fontSize: 11, color: context.appColors.muted),
         ),
       ],
     );
