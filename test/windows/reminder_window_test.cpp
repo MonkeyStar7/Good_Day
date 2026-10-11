@@ -8,6 +8,24 @@ void Check(bool value, const char *message) {
   if (!value)
     throw std::runtime_error(message);
 }
+HWND CurrentReminder() {
+  HWND result = nullptr;
+  EnumWindows(
+      [](HWND candidate, LPARAM target) -> BOOL {
+        DWORD process = 0;
+        GetWindowThreadProcessId(candidate, &process);
+        wchar_t name[64]{};
+        GetClassNameW(candidate, name, 64);
+        if (process == GetCurrentProcessId() &&
+            std::wstring(name) == L"GoodDay.Reminder") {
+          *reinterpret_cast<HWND *>(target) = candidate;
+          return FALSE;
+        }
+        return TRUE;
+      },
+      reinterpret_cast<LPARAM>(&result));
+  return result;
+}
 class Messenger : public flutter::BinaryMessenger {
 public:
   flutter::BinaryMessageHandler handler;
@@ -86,21 +104,26 @@ int main(int argc, char **argv) {
     ReminderWindow reminder(&messenger, owner);
     const flutter::EncodableMap args = {
         {flutter::EncodableValue("title"),
-         flutter::EncodableValue("独立提醒窗口测试")},
+         flutter::EncodableValue("准备开始下午的学习")},
         {flutter::EncodableValue("time"),
          flutter::EncodableValue("事件时间：2026-10-12 09:00")},
         {flutter::EncodableValue("notes"),
-         flutter::EncodableValue("测试数据，不使用个人任务")},
+         flutter::EncodableValue("准备好笔记，先复习昨天的内容。")},
+        {flutter::EncodableValue("date"),
+         flutter::EncodableValue("2026 年 10 月 12 日")},
+        {flutter::EncodableValue("clock"), flutter::EncodableValue("09:00")},
         {flutter::EncodableValue("timing"),
          flutter::EncodableValue("现在该做这件事了。")}};
     messenger.Call("show", args);
-    HWND popup = FindWindowW(L"GoodDay.Reminder", nullptr);
+    HWND popup = CurrentReminder();
     Check(popup && popup != owner && IsWindowVisible(popup),
           "independent visible popup missing");
     Check(!IsWindowVisible(owner) && !IsWindowEnabled(owner),
           "hidden owner changed or not protected");
     Check((GetWindowLongPtrW(popup, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0,
           "popup not on top");
+    Check((GetWindowLongPtrW(popup, GWL_STYLE) & WS_CAPTION) == 0,
+          "old system title bar still present");
     RECT bounds{};
     GetWindowRect(popup, &bounds);
     MONITORINFO monitor{};
@@ -129,10 +152,18 @@ int main(int argc, char **argv) {
     Check(!IsWindow(popup) && IsWindowEnabled(owner) && !IsWindowVisible(owner),
           "dismiss did not restore hidden owner");
     messenger.Call("show", args);
-    popup = FindWindowW(L"GoodDay.Reminder", nullptr);
-    SendMessageW(popup, WM_CLOSE, 0, 0);
+    popup = CurrentReminder();
+    SendMessageW(popup, WM_COMMAND, MAKEWPARAM(105, BN_CLICKED), 0);
     Check(messenger.action == 5 && IsWindow(popup),
-          "close must request saved snooze");
+          "custom close must request saved snooze");
+    messenger.Call("error");
+    MSG escape{};
+    escape.hwnd = GetDlgItem(popup, 104);
+    escape.message = WM_KEYDOWN;
+    escape.wParam = VK_ESCAPE;
+    IsDialogMessageW(popup, &escape);
+    Check(messenger.action == 5 && !IsWindowEnabled(GetDlgItem(popup, 104)),
+          "keyboard snooze missing");
     messenger.Call("dismiss");
     std::cout << "PASS: independent centered topmost popup, hidden tray owner, "
                  "acknowledgement, snooze, save retry and close protection\n";

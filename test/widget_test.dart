@@ -14,6 +14,8 @@ import 'package:good_day/models/good_day_plan.dart';
 import 'package:good_day/models/good_day_task.dart';
 import 'package:good_day/models/good_day_event.dart';
 import 'package:good_day/settings/app_settings.dart';
+import 'package:good_day/models/task_series.dart';
+import 'package:good_day/task_browser_page.dart';
 
 void main() {
   for (final width in [400.0, 340.0]) {
@@ -160,6 +162,73 @@ void main() {
       await inspect('08-trash');
     }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
   }
+
+  testWidgets(
+    'left notes keep history in the same window and protect task edits',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(400, 720);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repository = _MemoryRepository();
+      final task = await repository.addTask('已经完成的阅读');
+      await repository.setCompleted(task, true);
+      final desktop = _FakeDesktopExperience();
+      final boundary = GlobalKey();
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundary,
+          child: GoodDayApp(
+            repository: repository,
+            settingsController: AppSettingsController.inMemory(),
+            desktopExperience: desktop,
+          ),
+        ),
+      );
+      await _flushMicrotasks(tester);
+      final paper = tester.getRect(find.byKey(const Key('main-paper')));
+      for (final mode in ['today', 'plans', 'goals', 'events', 'history']) {
+        final tab = tester.getRect(find.byKey(Key('nav-$mode')));
+        expect(tab.right, lessThanOrEqualTo(paper.left + 1));
+      }
+      expect(find.byKey(const Key('home-mode-switch')), findsNothing);
+      expect(find.byKey(const Key('home-schedule-task')), findsNothing);
+      await tester.tap(find.byKey(const Key('nav-history')));
+      await _flushMicrotasks(tester);
+      expect(find.byType(TaskBrowserPage), findsOneWidget);
+      expect(find.byType(AppBar), findsNothing);
+      expect(find.byKey(const Key('nav-today')), findsOneWidget);
+      expect(find.text('已经完成的阅读'), findsOneWidget);
+      expect(find.text('安排任务'), findsNothing);
+      const capture = bool.fromEnvironment('CAPTURE_UI');
+      if (capture) {
+        await tester.runAsync(() async {
+          final render =
+              boundary.currentContext!.findRenderObject()!
+                  as RenderRepaintBoundary;
+          final image = await render.toImage(pixelRatio: 2);
+          final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+          await File('build/ui-preview/400-history-notes.png')
+              .writeAsBytes(bytes!.buffer.asUint8List());
+          image.dispose();
+        });
+      }
+      await tester.tap(find.byKey(Key('browse-task-${task.id}')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(Key('browse-edit-${task.id}')));
+      await tester.pumpAndSettle();
+      expect(await desktop.saveGuard!(), isFalse);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('nav-plans')));
+      await _flushMicrotasks(tester);
+      expect(find.byKey(const Key('add-plan-button')), findsOneWidget);
+      expect(find.byType(TaskBrowserPage), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 
   testWidgets('adds, completes, and removes a task from the UI', (
     tester,
@@ -386,7 +455,7 @@ void main() {
     expect(desktopExperience.hideCount, 1);
   });
 
-  testWidgets('cycles today, plans, and goals with shared goal labels', (
+  testWidgets('left note navigation switches pages with shared goal labels', (
     tester,
   ) async {
     tester.view.devicePixelRatio = 1;
@@ -404,10 +473,10 @@ void main() {
     );
     await _flushMicrotasks(tester);
 
-    await tester.tap(find.byKey(const Key('home-mode-switch')));
+    await tester.tap(find.byKey(const Key('nav-plans')));
     await _flushMicrotasks(tester);
     expect(find.text('计划'), findsWidgets);
-    await tester.tap(find.byKey(const Key('home-mode-switch')));
+    await tester.tap(find.byKey(const Key('nav-goals')));
     await _flushMicrotasks(tester);
     expect(find.text('目标'), findsWidgets);
 
@@ -426,10 +495,10 @@ void main() {
     expect(goal.name, '深度学习');
     expect(goal.description, '完成 D2L 学习');
 
-    await tester.tap(find.byKey(const Key('home-mode-switch')));
+    await tester.tap(find.byKey(const Key('nav-events')));
     await _flushMicrotasks(tester);
     expect(find.byKey(const Key('add-event')), findsOneWidget);
-    await tester.tap(find.byKey(const Key('home-mode-switch')));
+    await tester.tap(find.byKey(const Key('nav-today')));
     await _flushMicrotasks(tester);
     await tester.tap(find.byKey(const Key('add-task-button')));
     await _flushMicrotasks(tester);
@@ -445,7 +514,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(repository.tasks.single.goalId, goal.id);
 
-    await tester.tap(find.byKey(const Key('home-mode-switch')));
+    await tester.tap(find.byKey(const Key('nav-plans')));
     await _flushMicrotasks(tester);
     await tester.tap(find.byKey(const Key('add-plan-button')));
     await _flushMicrotasks(tester);
@@ -494,7 +563,7 @@ void main() {
     );
     await _flushMicrotasks(tester);
 
-    await tester.tap(find.byKey(const Key('home-mode-switch')));
+    await tester.tap(find.byKey(const Key('nav-plans')));
     await _flushMicrotasks(tester);
     await tester.tap(find.byKey(Key('edit-plan-${plan.id}')));
     await tester.pumpAndSettle();
@@ -512,7 +581,7 @@ void main() {
     await _flushMicrotasks(tester);
     expect(repository.plans, isEmpty);
 
-    await tester.tap(find.byKey(const Key('home-mode-switch')));
+    await tester.tap(find.byKey(const Key('nav-goals')));
     await _flushMicrotasks(tester);
     await tester.tap(find.byKey(Key('edit-goal-${goal.id}')));
     await tester.pumpAndSettle();
@@ -809,6 +878,9 @@ class _MemoryRepository extends VaultRepository {
 
   @override
   Future<List<GoodDayPlan>> loadPlans() async => List.of(plans);
+
+  @override
+  Future<List<TaskSeries>> loadTaskSeries() async => [];
 
   @override
   Future<List<GoodDayEvent>> loadEvents() async => [];

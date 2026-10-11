@@ -29,7 +29,7 @@ const _muted = Color(0xFF626C64);
 const _line = Color(0xFFDEE2DA);
 const _paper = Color(0xF5F5F5F0);
 const _expandedPaper = Color(0xFFEDF1EB);
-const _windowSize = Size(400, 720);
+const _windowSize = Size(456, 720);
 const _goalPalette = <Color>[
   Color(0xFFF2B544),
   Color(0xFFCF7D5E),
@@ -39,7 +39,7 @@ const _goalPalette = <Color>[
   Color(0xFF9A8371),
 ];
 
-enum _HomeView { today, plans, goals, events }
+enum _HomeView { today, plans, goals, events, history }
 
 Future<void> main(List<String> arguments) async {
   try {
@@ -151,7 +151,7 @@ Future<void> _startApplication(List<String> arguments) async {
 
   windowManager.waitUntilReadyToShow(options, () async {
     await windowManager.setTitle(internalReview ? 'Good Day 内部试用' : 'Good Day');
-    await windowManager.setMinimumSize(const Size(340, 500));
+    await windowManager.setMinimumSize(const Size(396, 500));
     await windowManager.setResizable(true);
     await windowManager.setHasShadow(true);
     await acrylic.Window.setEffect(
@@ -331,7 +331,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Timer? _reminderTimer;
   bool _eventEditorOpen = false;
   bool _taskEditorOpen = false;
-  bool _taskBrowserOpen = false;
   bool _reminderOpen = false;
   late VaultRepository _repository;
   _HomeView _view = _HomeView.today;
@@ -448,7 +447,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           !_transitioning &&
           !_eventEditorOpen &&
           !_taskEditorOpen &&
-          (_taskBrowserOpen || (ModalRoute.of(context)?.isCurrent ?? true)),
+          (ModalRoute.of(context)?.isCurrent ?? true),
       present: _presentReminder,
       onChanged: _loadEvents,
       onError: (error) {
@@ -863,10 +862,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     });
   }
 
-  void _cycleView() => _selectView(
-    _HomeView.values[(_view.index + 1) % _HomeView.values.length],
-  );
-
   Future<void> _selectView(_HomeView view) => _navigation.run(() async {
     if (_view == view) return;
     _transitioning = true;
@@ -881,6 +876,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _controller.clear();
       _isAdding = false;
     });
+    await _load();
   });
 
   Future<void> _deleteTask(GoodDayTask task) async {
@@ -968,6 +964,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             case _HomeView.goals:
               _expandedGoalId = _expandedGoalId == id ? null : id;
             case _HomeView.events:
+            case _HomeView.history:
               break;
           }
         });
@@ -1099,79 +1096,84 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       coordinator: _edits,
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        body: Container(
-          decoration: BoxDecoration(
-            color: _paper,
-            border: Border.all(color: const Color(0x66FFFFFF)),
-          ),
-          child: Column(
-            children: [
-              _WindowBar(
-                onSettings: _openSettings,
-                onClose: widget.desktopExperience == null
-                    ? null
-                    : () => unawaited(widget.desktopExperience!.hideWindow()),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _ModeHeader(
-                        mode: _view,
-                        date: _displayDate,
-                        completed: completed,
-                        total: _tasks.length,
-                        planCount: _plans.length,
-                        goalCount: _goals.length,
-                        eventCount: _events
-                            .where((event) => event.enabled)
-                            .length,
-                        onTap: _cycleView,
-                        onSelect: _selectView,
-                      ),
-                      const SizedBox(height: 24),
-                      if (_view == _HomeView.today) ...[
-                        Wrap(
-                          spacing: 8,
-                          children: [
-                            TextButton.icon(
-                              key: const Key('home-schedule-task'),
-                              onPressed: _loading
-                                  ? null
-                                  : () => _editTaskSchedule(null),
-                              icon: const Icon(Icons.add, size: 16),
-                              label: const Text('安排任务'),
-                            ),
-                            TextButton.icon(
-                              key: const Key('home-task-history'),
-                              onPressed: _loading ? null : _openTaskBrowser,
-                              icon: const Icon(Icons.history, size: 16),
-                              label: const Text('日期与历史'),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                      ],
-                      if (_repository.unreadableFiles.isNotEmpty)
-                        TextButton(
-                          key: const Key('unreadable-files-warning'),
-                          onPressed: _showUnreadableFiles,
-                          child: Text(
-                            '${_repository.unreadableFiles.length} 个文件无法读取，点击查看',
-                          ),
-                        ),
-                      Expanded(child: _buildCurrentArea()),
-                      const Divider(height: 1, thickness: 0.7, color: _line),
-                      const SizedBox(height: 12),
-                      _VaultStatus(path: _repository.vaultDirectory.path),
-                    ],
+        body: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _NoteNavigation(mode: _view, onSelect: _selectView),
+            Expanded(
+              child: Container(
+                key: const Key('main-paper'),
+                decoration: BoxDecoration(
+                  color: _paper,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(12),
+                    bottomLeft: Radius.circular(12),
                   ),
+                  border: Border.all(color: const Color(0x66FFFFFF)),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
+                    _WindowBar(
+                      onSettings: _openSettings,
+                      onClose: widget.desktopExperience == null
+                          ? null
+                          : () => unawaited(
+                              widget.desktopExperience!.hideWindow(),
+                            ),
+                    ),
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final inset = constraints.maxWidth < 320
+                              ? 14.0
+                              : 24.0;
+                          return Padding(
+                            padding: EdgeInsets.fromLTRB(inset, 24, inset, 16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                _ModeHeader(
+                                  mode: _view,
+                                  date: _displayDate,
+                                  completed: completed,
+                                  total: _tasks.length,
+                                  planCount: _plans.length,
+                                  goalCount: _goals.length,
+                                  eventCount: _events
+                                      .where((event) => event.enabled)
+                                      .length,
+                                ),
+                                const SizedBox(height: 24),
+                                if (_repository.unreadableFiles.isNotEmpty)
+                                  TextButton(
+                                    key: const Key('unreadable-files-warning'),
+                                    onPressed: _showUnreadableFiles,
+                                    child: Text(
+                                      '${_repository.unreadableFiles.length} 个文件无法读取，点击查看',
+                                    ),
+                                  ),
+                                Expanded(child: _buildCurrentArea()),
+                                const Divider(
+                                  height: 1,
+                                  thickness: 0.7,
+                                  color: _line,
+                                ),
+                                const SizedBox(height: 12),
+                                _VaultStatus(
+                                  path: _repository.vaultDirectory.path,
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -1191,6 +1193,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _HomeView.today => _buildTaskArea(),
       _HomeView.plans => _buildPlanArea(),
       _HomeView.goals => _buildGoalArea(),
+      _HomeView.history => TaskBrowserPage(
+        key: ValueKey(_repository.vaultDirectory.path),
+        repository: _repository,
+        clock: _now,
+        initialView: TaskView.history,
+        embedded: true,
+        onEditingChanged: (editing) => _taskEditorOpen = editing,
+      ),
       _HomeView.events => EventsArea(
         events: _events,
         now: _now(),
@@ -1224,26 +1234,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
       if (mounted) await _load();
     } finally {
-      _taskEditorOpen = false;
-    }
-  }
-
-  Future<void> _openTaskBrowser() async {
-    if (!await _saveBeforeLeave() || !mounted) return;
-    _taskBrowserOpen = true;
-    try {
-      await Navigator.of(context).push<void>(
-        MaterialPageRoute(
-          builder: (_) => TaskBrowserPage(
-            repository: _repository,
-            clock: _now,
-            onEditingChanged: (editing) => _taskEditorOpen = editing,
-          ),
-        ),
-      );
-      if (mounted) await _load();
-    } finally {
-      _taskBrowserOpen = false;
       _taskEditorOpen = false;
     }
   }
@@ -1426,13 +1416,17 @@ class _WindowBar extends StatelessWidget {
                           filterQuality: FilterQuality.high,
                         ),
                         const SizedBox(width: 8),
-                        Text(
-                          title,
-                          style: const TextStyle(
-                            color: Color(0xFF555A56),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 1.4,
+                        Flexible(
+                          child: Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF555A56),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 1.4,
+                            ),
                           ),
                         ),
                       ],
@@ -1559,6 +1553,116 @@ class _GearPainter extends CustomPainter {
   bool shouldRepaint(_GearPainter oldDelegate) => oldDelegate.color != color;
 }
 
+class _NoteNavigation extends StatelessWidget {
+  const _NoteNavigation({required this.mode, required this.onSelect});
+  final _HomeView mode;
+  final ValueChanged<_HomeView> onSelect;
+  static const _colors = [
+    Color(0xFFE2EBDD),
+    Color(0xFFF2E9CB),
+    Color(0xFFE7E1F0),
+    Color(0xFFDDE9EF),
+    Color(0xFFF0DFD5),
+  ];
+  static const _icons = [
+    Icons.wb_sunny_outlined,
+    Icons.event_note_outlined,
+    Icons.flag_outlined,
+    Icons.notifications_none,
+    Icons.history,
+  ];
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    key: const Key('note-navigation'),
+    width: 56,
+    child: Padding(
+      padding: const EdgeInsets.only(top: 88),
+      child: Column(
+        children: [
+          for (final view in _HomeView.values)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Semantics(
+                selected: mode == view,
+                button: true,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  margin: EdgeInsets.only(left: mode == view ? 0 : 6),
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: _colors[view.index],
+                    borderRadius: const BorderRadius.horizontal(
+                      left: Radius.circular(8),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0x1C29382B),
+                        blurRadius: mode == view ? 10 : 4,
+                        offset: const Offset(-1, 3),
+                      ),
+                    ],
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      key: Key('nav-${view.name}'),
+                      borderRadius: const BorderRadius.horizontal(
+                        left: Radius.circular(8),
+                      ),
+                      onTap: () => onSelect(view),
+                      child: Stack(
+                        children: [
+                          if (mode == view)
+                            Positioned(
+                              left: 0,
+                              top: 18,
+                              bottom: 18,
+                              child: Container(
+                                width: 3,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF3E624D),
+                                  borderRadius: BorderRadius.horizontal(
+                                    right: Radius.circular(2),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _icons[view.index],
+                                  size: 18,
+                                  color: mode == view ? _ink : _muted,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _ModeHeader.label(view),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: mode == view ? _ink : _muted,
+                                    fontWeight: mode == view
+                                        ? FontWeight.w600
+                                        : FontWeight.w400,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
 class _ModeHeader extends StatelessWidget {
   const _ModeHeader({
     required this.mode,
@@ -1568,23 +1672,17 @@ class _ModeHeader extends StatelessWidget {
     required this.planCount,
     required this.goalCount,
     required this.eventCount,
-    required this.onTap,
-    required this.onSelect,
   });
-
   final _HomeView mode;
   final DateTime date;
   final int completed, total, planCount, goalCount, eventCount;
-  final VoidCallback onTap;
-  final ValueChanged<_HomeView> onSelect;
-
   static String label(_HomeView view) => switch (view) {
     _HomeView.today => '今日',
     _HomeView.plans => '计划',
     _HomeView.goals => '目标',
     _HomeView.events => '事件',
+    _HomeView.history => '历史',
   };
-
   @override
   Widget build(BuildContext context) {
     const weekdays = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
@@ -1593,6 +1691,7 @@ class _ModeHeader extends StatelessWidget {
       _HomeView.plans => '$planCount 项计划',
       _HomeView.goals => '$goalCount 个目标',
       _HomeView.events => '$eventCount 项提醒已开启',
+      _HomeView.history => '记录与回顾',
     };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1600,86 +1699,33 @@ class _ModeHeader extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: InkWell(
-                key: const Key('home-mode-switch'),
-                onTap: onTap,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      label(mode),
-                      style: const TextStyle(
-                        color: _ink,
-                        fontSize: 30,
-                        height: 1.3,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: -0.6,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    const Icon(Icons.chevron_right, size: 18, color: _muted),
-                  ],
+              child: Text(
+                label(mode),
+                style: const TextStyle(
+                  color: _ink,
+                  fontSize: 30,
+                  height: 1.3,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: -0.6,
                 ),
               ),
             ),
             Text(count, style: const TextStyle(color: _muted, fontSize: 12)),
           ],
         ),
-        if (mode == _HomeView.today) ...[
-          const SizedBox(height: 6),
-          Text(
-            '${date.month}月${date.day}日  ${weekdays[date.weekday - 1]}',
-            style: const TextStyle(color: _muted, fontSize: 12),
-          ),
-        ],
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            for (final view in _HomeView.values) ...[
-              if (view.index != 0)
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 8),
-                  child: Text('·', style: TextStyle(color: _muted)),
-                ),
-              Semantics(
-                selected: mode == view,
-                button: true,
-                child: InkWell(
-                  key: Key('nav-${view.name}'),
-                  onTap: () => onSelect(view),
-                  child: Container(
-                    alignment: Alignment.center,
-                    constraints: const BoxConstraints(
-                      minHeight: 32,
-                      minWidth: 36,
-                    ),
-                    decoration: BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(
-                          color: mode == view
-                              ? Theme.of(context).colorScheme.primary
-                              : Colors.transparent,
-                          width: 1.5,
-                        ),
-                      ),
-                    ),
-                    child: Text(
-                      label(view),
-                      style: TextStyle(
-                        color: mode == view ? _ink : _muted,
-                        fontSize: 12,
-                        fontWeight: mode == view
-                            ? FontWeight.w600
-                            : FontWeight.w400,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ],
+        const SizedBox(height: 6),
+        Text(
+          mode == _HomeView.today
+              ? '${date.month}月${date.day}日  ${weekdays[date.weekday - 1]}'
+              : switch (mode) {
+                  _HomeView.plans => '给下一步留一个位置',
+                  _HomeView.goals => '让每天的行动有方向',
+                  _HomeView.events => '重要的事，准时想起',
+                  _HomeView.history => '按日期查看，找回做过的事',
+                  _HomeView.today => '',
+                },
+          style: const TextStyle(color: _muted, fontSize: 12),
         ),
-        const Divider(height: 1, thickness: 0.7, color: _line),
       ],
     );
   }

@@ -26,11 +26,13 @@ class TaskBrowserPage extends StatefulWidget {
     required this.clock,
     required this.onEditingChanged,
     this.initialView = TaskView.tomorrow,
+    this.embedded = false,
   });
   final VaultRepository repository;
   final DateTime Function() clock;
   final void Function(bool editing) onEditingChanged;
   final TaskView initialView;
+  final bool embedded;
   @override
   State<TaskBrowserPage> createState() => _TaskBrowserPageState();
 }
@@ -255,14 +257,16 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
     canPop: !_busy,
     child: Scaffold(
       backgroundColor: const Color(0xFFF5F5F0),
-      appBar: AppBar(
-        title: const Text('任务日期与历史'),
-        backgroundColor: const Color(0xFFF5F5F0),
-      ),
+      appBar: widget.embedded
+          ? null
+          : AppBar(
+              title: const Text('任务日期与历史'),
+              backgroundColor: const Color(0xFFF5F5F0),
+            ),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: EdgeInsets.symmetric(horizontal: widget.embedded ? 0 : 16),
             child: Column(
               children: [
                 Wrap(
@@ -272,6 +276,29 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
                       ChoiceChip(
                         key: Key('task-filter-${view.name}'),
                         label: Text(view.label),
+                        showCheckmark: false,
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 3,
+                          vertical: 2,
+                        ),
+                        labelPadding: const EdgeInsets.symmetric(horizontal: 6),
+                        labelStyle: TextStyle(
+                          fontSize: 12,
+                          color: _view == view && _date == null
+                              ? const Color(0xFF3D604A)
+                              : const Color(0xFF626C64),
+                        ),
+                        selectedColor: const Color(0xFFE3EBDD),
+                        backgroundColor: const Color(0xFFF5F5F0),
+                        side: const BorderSide(
+                          color: Color(0xFFDDE2D6),
+                          width: 0.7,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(9),
+                        ),
                         selected: _view == view && _date == null,
                         onSelected: _busy
                             ? null
@@ -284,9 +311,32 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
                 ),
                 TextField(
                   key: const Key('task-search'),
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search),
+                  style: const TextStyle(fontSize: 13),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                    prefixIcon: const Icon(Icons.search, size: 18),
+                    hintStyle: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF929992),
+                    ),
                     hintText: '搜索任务、备注或子任务',
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(
+                        color: Color(0xFFDDE2D6),
+                        width: 0.7,
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
                   ),
                   onChanged: (query) => setState(() => _query = query),
                 ),
@@ -296,20 +346,16 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
                       key: const Key('task-browse-date'),
                       onPressed: _busy ? null : _pickDate,
                       icon: const Icon(Icons.calendar_today, size: 16),
-                      label: Text(_date == null ? '选择日期' : dateKey(_date!)),
+                      label: Text(
+                        _date == null ? '选择日期' : dateKey(_date!),
+                        style: const TextStyle(fontSize: 12),
+                      ),
                     ),
                     if (_date != null)
                       IconButton(
                         onPressed: () => setState(() => _date = null),
                         icon: const Icon(Icons.clear, size: 16),
                       ),
-                    const Spacer(),
-                    TextButton.icon(
-                      key: const Key('create-scheduled-task'),
-                      onPressed: _busy ? null : () => _edit(null),
-                      icon: const Icon(Icons.add),
-                      label: const Text('安排任务'),
-                    ),
                   ],
                 ),
                 if (_error != null)

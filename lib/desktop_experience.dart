@@ -139,6 +139,10 @@ class SystemDesktopExperience extends DesktopExperience
       await _reminder.invokeMethod<void>('show', {
         'title': event.title,
         'time': '事件时间：${eventDateTimeLabel(occurrence)}',
+        'date':
+            '${occurrence.year} 年 ${occurrence.month} 月 ${occurrence.day} 日',
+        'clock':
+            '${occurrence.hour.toString().padLeft(2, '0')}:${occurrence.minute.toString().padLeft(2, '0')}',
         'notes': event.notes,
         'timing': now.isAfter(occurrence)
             ? '这是错过的提醒，现在补提醒你。'
