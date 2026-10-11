@@ -191,7 +191,10 @@ void main() {
 
     final trash = await repository.loadTrash();
     expect(trash, hasLength(3));
-    expect(trash.map((item) => item.type), containsAll(TrashItemType.values));
+    expect(
+      trash.map((item) => item.type),
+      containsAll([TrashItemType.task, TrashItemType.plan, TrashItemType.goal]),
+    );
     expect(trash.map((item) => item.title), contains('修改后的计划'));
 
     for (final item in List<TrashItem>.of(trash)) {

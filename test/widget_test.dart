@@ -12,6 +12,7 @@ import 'package:good_day/main.dart';
 import 'package:good_day/models/good_day_goal.dart';
 import 'package:good_day/models/good_day_plan.dart';
 import 'package:good_day/models/good_day_task.dart';
+import 'package:good_day/models/good_day_event.dart';
 import 'package:good_day/settings/app_settings.dart';
 
 void main() {
@@ -427,6 +428,9 @@ void main() {
 
     await tester.tap(find.byKey(const Key('home-mode-switch')));
     await _flushMicrotasks(tester);
+    expect(find.byKey(const Key('add-event')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('home-mode-switch')));
+    await _flushMicrotasks(tester);
     await tester.tap(find.byKey(const Key('add-task-button')));
     await _flushMicrotasks(tester);
     await tester.enterText(find.byKey(const Key('new-task-field')), '阅读第三章');
@@ -752,6 +756,12 @@ class _FakeDesktopExperience implements DesktopExperience {
   }
 
   @override
+  Future<void> showWindow() async {}
+
+  @override
+  Future<void> setReminderOnTop(bool enabled) async {}
+
+  @override
   Future<bool> isLaunchAtStartupEnabled() async => launchAtStartup;
 
   @override
@@ -791,6 +801,9 @@ class _MemoryRepository extends VaultRepository {
 
   @override
   Future<List<GoodDayPlan>> loadPlans() async => List.of(plans);
+
+  @override
+  Future<List<GoodDayEvent>> loadEvents() async => [];
 
   @override
   Future<GoodDayTask> addTask(String title) async {
@@ -984,6 +997,8 @@ class _MemoryRepository extends VaultRepository {
         return;
       case TrashItemType.goal:
         goals.add(trashedGoals.remove(item.id)!);
+        return;
+      case TrashItemType.event:
         return;
     }
   }

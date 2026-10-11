@@ -40,11 +40,9 @@ try {
         Get-ChildItem -LiteralPath $compiled | Copy-Item -Destination $bundle -Recurse -Force
         Get-ChildItem -LiteralPath $crt.FullName -Filter '*.dll' | Copy-Item -Destination $bundle -Force
         Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md') -Destination (Join-Path $bundle 'README.md')
+        Copy-Item -LiteralPath (Join-Path $projectRoot 'docs') -Destination (Join-Path $bundle 'docs') -Recurse
         if ($InternalReview) {
-            Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/internal-review.md') -Destination (Join-Path $bundle 'INTERNAL-REVIEW.md')
-            $readmePath = Join-Path $bundle 'README.md'
-            $readmeContents = (Get-Content -LiteralPath $readmePath -Raw -Encoding UTF8).Replace('docs/internal-review.md', 'INTERNAL-REVIEW.md')
-            [IO.File]::WriteAllText($readmePath, $readmeContents, [Text.UTF8Encoding]::new($false))
+            Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/events-review.md') -Destination (Join-Path $bundle 'INTERNAL-REVIEW.md')
         }
         $commit = & git rev-parse HEAD
         if ($LASTEXITCODE -ne 0) { throw 'Unable to read source commit.' }

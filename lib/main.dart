@@ -5,17 +5,21 @@ import 'dart:math' as math;
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as acrylic;
 import 'package:window_manager/window_manager.dart';
 
 import 'backup_page.dart';
 import 'data/safe_file.dart';
 import 'edit_safety.dart';
+import 'events_page.dart';
+import 'event_reminder_service.dart';
 import 'data/vault_repository.dart';
 import 'desktop_experience.dart';
 import 'models/good_day_goal.dart';
 import 'models/good_day_plan.dart';
 import 'models/good_day_task.dart';
+import 'models/good_day_event.dart';
 import 'settings/app_settings.dart';
 import 'settings/vault_location_store.dart';
 
@@ -34,7 +38,7 @@ const _goalPalette = <Color>[
   Color(0xFF9A8371),
 ];
 
-enum _HomeView { today, plans, goals }
+enum _HomeView { today, plans, goals, events }
 
 Future<void> main(List<String> arguments) async {
   try {
@@ -193,6 +197,9 @@ class GoodDayApp extends StatelessWidget {
       builder: (context, _) {
         final settings = settingsController.settings;
         return MaterialApp(
+          locale: const Locale('zh', 'CN'),
+          supportedLocales: const [Locale('zh', 'CN')],
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
           debugShowCheckedModeBanner: false,
           title: 'Good Day',
           theme: ThemeData(
@@ -318,6 +325,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   List<GoodDayTask> _tasks = [];
   List<GoodDayPlan> _plans = [];
   List<GoodDayGoal> _goals = [];
+  List<GoodDayEvent> _events = [];
+  late final EventReminderService _reminders;
+  Timer? _reminderTimer;
+  bool _eventEditorOpen = false;
+  bool _reminderOpen = false;
   late VaultRepository _repository;
   _HomeView _view = _HomeView.today;
   bool _loading = true;
@@ -346,6 +358,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<bool> _flushBeforeLeave() async {
+    if (_eventEditorOpen || _reminderOpen) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('请先保存或取消待办事件，或处理当前提醒')));
+      }
+      return false;
+    }
     try {
       if (!await _edits.flush()) return false;
       if (_isAdding && _controller.text.trim().isNotEmpty) await _addTask();
@@ -362,10 +381,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  void _requestRefresh() => unawaited(_refreshDate(force: true));
+  void _requestRefresh() {
+    unawaited(_refreshDate(force: true));
+    unawaited(_reminders.check());
+  }
 
   Future<void> _refreshDate({bool force = false}) async {
-    if (!mounted || _loading || _refreshing || _transitioning) return;
+    if (!mounted ||
+        _loading ||
+        _refreshing ||
+        _transitioning ||
+        _eventEditorOpen ||
+        _reminderOpen) {
+      return;
+    }
     final now = _now();
     if (!force && isSameDay(now, _displayDate)) return;
     _refreshing = true;
@@ -405,6 +434,30 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     super.initState();
     _repository = widget.repository;
     _displayDate = _now();
+    _reminders = EventReminderService(
+      repository: () => _repository,
+      clock: _now,
+      canPresent: () =>
+          mounted &&
+          !_loading &&
+          !_settingsOpen &&
+          !_transitioning &&
+          !_eventEditorOpen &&
+          (ModalRoute.of(context)?.isCurrent ?? true),
+      present: _presentReminder,
+      onChanged: _loadEvents,
+      onError: (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('提醒暂时无法读取或保存，将自动重试：$error')));
+        }
+      },
+    );
+    _reminderTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => unawaited(_reminders.check()),
+    );
     WidgetsBinding.instance.addObserver(this);
     widget.desktopExperience?.setSaveGuard(_saveBeforeLeave);
     widget.desktopExperience?.refreshRequests.addListener(_requestRefresh);
@@ -424,6 +477,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _handleOpenSettingsRequest,
     );
     _dateTimer?.cancel();
+    _reminderTimer?.cancel();
+    _reminders.dispose();
     WidgetsBinding.instance.removeObserver(this);
     widget.desktopExperience?.setSaveGuard(null);
     widget.desktopExperience?.refreshRequests.removeListener(_requestRefresh);
@@ -437,6 +492,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final tasks = await _repository.loadTasks();
       final goals = await _repository.loadGoals();
       final plans = await _repository.loadPlans();
+      final events = await _repository.loadEvents();
       if (!mounted) return;
       setState(() {
         _displayDate = _now();
@@ -450,15 +506,130 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             .toList();
         _goals = goals;
         _plans = plans;
+        _events = events;
         _loading = false;
         _error = null;
       });
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => unawaited(_reminders.check()),
+      );
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _loading = false;
         _error = error.toString();
       });
+    }
+  }
+
+  Future<void> _loadEvents() async {
+    final events = await _repository.loadEvents();
+    if (mounted) setState(() => _events = events);
+  }
+
+  Future<void> _presentReminder(
+    GoodDayEvent event,
+    DateTime occurrence,
+    Future<void> Function(Duration? snooze) resolve,
+  ) async {
+    if (!mounted) return;
+    _reminderOpen = true;
+    try {
+      await widget.desktopExperience?.setReminderOnTop(true);
+      await widget.desktopExperience?.showWindow();
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => EventReminderDialog(
+          event: event,
+          occurrence: occurrence,
+          now: _now(),
+          onResolve: resolve,
+        ),
+      );
+    } finally {
+      _reminderOpen = false;
+      await widget.desktopExperience?.setReminderOnTop(false);
+    }
+  }
+
+  Future<void> _editEvent(GoodDayEvent? event) async {
+    if (_eventEditorOpen || _reminderOpen) return;
+    _transitioning = true;
+    final saved = await _saveBeforeLeave();
+    _transitioning = false;
+    if (!saved || !mounted) return;
+    _eventEditorOpen = true;
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => EventEditorDialog(
+          event: event,
+          now: _now(),
+          onSave: (draft) async {
+            final saved = await _repository.saveEvent(draft);
+            if (mounted) {
+              setState(() {
+                _events = [
+                  ..._events.where((event) => event.id != saved.id),
+                  saved,
+                ];
+              });
+            }
+          },
+        ),
+      );
+    } finally {
+      _eventEditorOpen = false;
+      unawaited(_reminders.check());
+    }
+  }
+
+  Future<void> _toggleEvent(GoodDayEvent event, bool enabled) =>
+      _actions.run(() async {
+        try {
+          final saved = await _repository.saveEvent(
+            event.edit(
+              title: event.title,
+              notes: event.notes,
+              startsAt: event.startsAt,
+              repeat: event.repeat,
+              reminderMinutes: event.reminderMinutes,
+              enabled: enabled,
+            ),
+          );
+          if (mounted) {
+            setState(() {
+              _events = [
+                ..._events.where((event) => event.id != saved.id),
+                saved,
+              ];
+            });
+          }
+          unawaited(_reminders.check());
+        } catch (error) {
+          if (mounted) {
+            ScaffoldMessenger.of(context)
+                .showSnackBar(SnackBar(content: Text('提醒状态未修改，请重试：$error')));
+          }
+        }
+      });
+
+  Future<void> _deleteEvent(GoodDayEvent event) async {
+    if (!await _confirmDelete('待办事件“${event.title}”')) return;
+    try {
+      await _repository.deleteEvent(event);
+      if (mounted) {
+        setState(() => _events.removeWhere((item) => item.id == event.id));
+      }
+      if (mounted) _showMovedToTrash('待办事件');
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('事件未删除，请重试：$error')));
+      }
     }
   }
 
@@ -782,6 +953,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               _expandedPlanId = _expandedPlanId == id ? null : id;
             case _HomeView.goals:
               _expandedGoalId = _expandedGoalId == id ? null : id;
+            case _HomeView.events:
+              break;
           }
         });
       });
@@ -816,6 +989,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final tasks = await nextRepository.loadTasks();
       final goals = await nextRepository.loadGoals();
       final plans = await nextRepository.loadPlans();
+      final events = await nextRepository.loadEvents();
       await widget.settingsController.useVault(targetDirectory);
       await widget.vaultLocationStore?.save(targetDirectory);
 
@@ -833,6 +1007,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               .toList();
           _goals = goals;
           _plans = plans;
+          _events = events;
           _loading = false;
           _error = null;
         });
@@ -936,6 +1111,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         total: _tasks.length,
                         planCount: _plans.length,
                         goalCount: _goals.length,
+                        eventCount: _events
+                            .where((event) => event.enabled)
+                            .length,
                         onTap: _cycleView,
                         onSelect: _selectView,
                       ),
@@ -977,6 +1155,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _HomeView.today => _buildTaskArea(),
       _HomeView.plans => _buildPlanArea(),
       _HomeView.goals => _buildGoalArea(),
+      _HomeView.events => EventsArea(
+        events: _events,
+        now: _now(),
+        onEdit: _editEvent,
+        onToggle: _toggleEvent,
+        onDelete: _deleteEvent,
+      ),
     };
   }
 
@@ -1298,13 +1483,14 @@ class _ModeHeader extends StatelessWidget {
     required this.total,
     required this.planCount,
     required this.goalCount,
+    required this.eventCount,
     required this.onTap,
     required this.onSelect,
   });
 
   final _HomeView mode;
   final DateTime date;
-  final int completed, total, planCount, goalCount;
+  final int completed, total, planCount, goalCount, eventCount;
   final VoidCallback onTap;
   final ValueChanged<_HomeView> onSelect;
 
@@ -1312,6 +1498,7 @@ class _ModeHeader extends StatelessWidget {
     _HomeView.today => '今日',
     _HomeView.plans => '计划',
     _HomeView.goals => '目标',
+    _HomeView.events => '事件',
   };
 
   @override
@@ -1321,6 +1508,7 @@ class _ModeHeader extends StatelessWidget {
       _HomeView.today => '$completed / $total 完成',
       _HomeView.plans => '$planCount 项计划',
       _HomeView.goals => '$goalCount 个目标',
+      _HomeView.events => '$eventCount 项提醒已开启',
     };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3641,7 +3829,7 @@ class _SettingsPageState extends State<SettingsPage> {
         builder: (dialogContext) => AlertDialog(
           title: const Text('删除原位置数据？'),
           content: Text(
-            '迁移成功后，Good Day 将删除原位置中的 Tasks、Daily、Archive 和设置文件。\n\n'
+            '迁移成功后，Good Day 将删除原位置中的任务、计划、目标、待办事件、每日记录、垃圾桶和设置文件。\n\n'
             '原位置：$_vaultPath\n\n新位置：$selectedPath',
           ),
           actions: [
@@ -4103,12 +4291,14 @@ class _TrashPageState extends State<TrashPage> {
     TrashItemType.task => '任务',
     TrashItemType.plan => '计划',
     TrashItemType.goal => '目标',
+    TrashItemType.event => '待办事件',
   };
 
   IconData _typeIcon(TrashItemType type) => switch (type) {
     TrashItemType.task => Icons.check_box_outlined,
     TrashItemType.plan => Icons.calendar_today_outlined,
     TrashItemType.goal => Icons.flag_outlined,
+    TrashItemType.event => Icons.notifications_outlined,
   };
 
   @override

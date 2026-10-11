@@ -8,8 +8,9 @@ import 'vault_backups.dart';
 import '../models/good_day_goal.dart';
 import '../models/good_day_plan.dart';
 import '../models/good_day_task.dart';
+import '../models/good_day_event.dart';
 
-enum TrashItemType { task, plan, goal }
+enum TrashItemType { task, plan, goal, event }
 
 class TrashItem {
   const TrashItem({
@@ -103,6 +104,9 @@ class VaultRepository {
       _childDirectory(archiveDirectory, 'Goals');
   Directory get goalsDirectory => _childDirectory(vaultDirectory, 'Goals');
   Directory get plansDirectory => _childDirectory(vaultDirectory, 'Plans');
+  Directory get eventsDirectory => _childDirectory(vaultDirectory, 'Events');
+  Directory get archivedEventsDirectory =>
+      _childDirectory(archiveDirectory, 'Events');
 
   static Future<VaultRepository> createDefault() async {
     final documents = await getApplicationDocumentsDirectory();
@@ -117,6 +121,8 @@ class VaultRepository {
     await archivedGoalsDirectory.create(recursive: true);
     await goalsDirectory.create(recursive: true);
     await plansDirectory.create(recursive: true);
+    await eventsDirectory.create(recursive: true);
+    await archivedEventsDirectory.create(recursive: true);
   }
 
   Future<bool> hasVaultData() async {
@@ -126,6 +132,7 @@ class VaultRepository {
       archiveDirectory,
       goalsDirectory,
       plansDirectory,
+      eventsDirectory,
     ]) {
       if (!await directory.exists()) continue;
       await for (final entity in directory.list()) {
@@ -154,7 +161,14 @@ class VaultRepository {
       throw const FileSystemException('不能选择当前 Vault 的内部或上级文件夹');
     }
 
-    for (final name in ['Tasks', 'Daily', 'Archive', 'Goals', 'Plans']) {
+    for (final name in [
+      'Tasks',
+      'Daily',
+      'Archive',
+      'Goals',
+      'Plans',
+      'Events',
+    ]) {
       await _copyDirectory(
         _childDirectory(vaultDirectory, name),
         _childDirectory(targetVault, name),
@@ -179,6 +193,7 @@ class VaultRepository {
       archiveDirectory,
       goalsDirectory,
       plansDirectory,
+      eventsDirectory,
     ]) {
       if (await directory.exists()) await directory.delete(recursive: true);
     }
@@ -214,6 +229,111 @@ class VaultRepository {
     _sort(tasks);
     await _syncDaily(tasks, now);
     return tasks;
+  });
+
+  Future<List<GoodDayEvent>> loadEvents() => _operations.run(() async {
+    if (!await eventsDirectory.exists()) return [];
+    final events = <GoodDayEvent>[];
+    await for (final file in eventsDirectory.list(followLinks: false)) {
+      if (file is! File || !file.path.toLowerCase().endsWith('.md')) continue;
+      try {
+        final event = GoodDayEvent.fromMarkdown(await file.readAsString());
+        if (file.absolute.path.toLowerCase() !=
+            _eventFile(event.id).absolute.path.toLowerCase()) {
+          throw const FormatException('事件标识与文件名不一致');
+        }
+        if (event.deletedAt == null) events.add(event);
+        _unreadableFiles.remove(file.path);
+      } on FormatException {
+        _unreadableFiles.add(file.path);
+      } on FileSystemException {
+        _unreadableFiles.add(file.path);
+      }
+    }
+    return events;
+  });
+
+  File _eventFile(String id, {bool archived = false}) {
+    if (!RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(id)) {
+      throw const FormatException('事件标识无效');
+    }
+    return _taskFile(archived ? archivedEventsDirectory : eventsDirectory, id);
+  }
+
+  Future<GoodDayEvent> saveEvent(GoodDayEvent draft) =>
+      _writeOperation(() async {
+        final isNew = draft.id.isEmpty;
+        var event = draft;
+        if (isNew) {
+          event = GoodDayEvent(
+            id: _newId('event', _clock()),
+            title: draft.title.trim(),
+            notes: draft.notes.trim(),
+            startsAt: draft.startsAt,
+            repeat: draft.repeat,
+            reminderMinutes: draft.reminderMinutes,
+            enabled: draft.enabled,
+          );
+        } else {
+          final current = GoodDayEvent.fromMarkdown(
+            await _eventFile(draft.id).readAsString(),
+          );
+          event = current.edit(
+            title: draft.title,
+            notes: draft.notes,
+            startsAt: draft.startsAt,
+            repeat: draft.repeat,
+            reminderMinutes: draft.reminderMinutes,
+            enabled: draft.enabled,
+          );
+        }
+        // Validate before touching live data, including values from external callers.
+        GoodDayEvent.fromMarkdown(event.toMarkdown());
+        await SafeFile.write(_eventFile(event.id), event.toMarkdown());
+        return event;
+      });
+
+  Future<GoodDayEvent?> prepareEventReminder(String id, DateTime now) =>
+      _writeOperation(() async {
+        final file = _eventFile(id);
+        if (!await file.exists()) return null;
+        final current = GoodDayEvent.fromMarkdown(await file.readAsString());
+        final occurrence = current.dueOccurrence(now);
+        if (occurrence == null) return null;
+        final prepared = current.pending(occurrence);
+        if (prepared.toMarkdown() != current.toMarkdown()) {
+          await SafeFile.write(file, prepared.toMarkdown());
+        }
+        return prepared;
+      });
+
+  Future<void> resolveEventReminder(
+    String id,
+    DateTime occurrence, {
+    DateTime? snoozeUntil,
+  }) => _writeOperation(() async {
+    final file = _eventFile(id);
+    final current = GoodDayEvent.fromMarkdown(await file.readAsString());
+    if (!current.enabled || current.pendingOccurrence != occurrence) {
+      throw const FileSystemException('事件已发生变化，请重新查看事件');
+    }
+    if (snoozeUntil != null && !snoozeUntil.isAfter(_clock())) {
+      throw const FormatException('稍后提醒时间必须在未来');
+    }
+    await SafeFile.write(
+      file,
+      current.resolve(occurrence, snoozeUntil: snoozeUntil).toMarkdown(),
+    );
+  });
+
+  Future<void> deleteEvent(GoodDayEvent event) => _writeOperation(() async {
+    final file = _eventFile(event.id);
+    final current = GoodDayEvent.fromMarkdown(await file.readAsString());
+    await SafeFile.write(
+      _eventFile(event.id, archived: true),
+      current.markDeleted(_clock()).toMarkdown(),
+    );
+    await file.delete();
   });
 
   Future<GoodDayTask> addTask(String title) => _writeOperation(() async {
@@ -506,6 +626,24 @@ class VaultRepository {
     }
     await _appendArchivedPlans(items);
     await _appendArchivedGoals(items);
+    await for (final file in archivedEventsDirectory.list(followLinks: false)) {
+      if (file is! File || !file.path.toLowerCase().endsWith('.md')) continue;
+      try {
+        final event = GoodDayEvent.fromMarkdown(await file.readAsString());
+        items.add(
+          TrashItem(
+            type: TrashItemType.event,
+            id: event.id,
+            title: event.title,
+            deletedAt: event.deletedAt ?? (await file.stat()).changed,
+          ),
+        );
+      } on FormatException {
+        _unreadableFiles.add(file.path);
+      } on FileSystemException {
+        _unreadableFiles.add(file.path);
+      }
+    }
     items.sort((a, b) => b.deletedAt.compareTo(a.deletedAt));
     return items;
   }
@@ -532,6 +670,13 @@ class VaultRepository {
           _taskFile(archivedGoalsDirectory, item.id),
           _taskFile(goalsDirectory, item.id),
         );
+        return;
+      case TrashItemType.event:
+        final source = _eventFile(item.id, archived: true);
+        final restored = GoodDayEvent.fromMarkdown(await source.readAsString())
+            .restore();
+        await SafeFile.write(_eventFile(item.id), restored.toMarkdown());
+        await source.delete();
         return;
     }
   });
@@ -571,6 +716,7 @@ class VaultRepository {
     }
     await _deleteContents(archivedPlansDirectory);
     await _deleteContents(archivedGoalsDirectory);
+    await _deleteContents(archivedEventsDirectory);
     await _syncDaily(await _readTasks(tasksDirectory), _clock());
   });
 

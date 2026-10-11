@@ -15,6 +15,10 @@ abstract interface class DesktopExperience {
 
   Future<void> hideWindow();
 
+  Future<void> showWindow();
+
+  Future<void> setReminderOnTop(bool enabled);
+
   Future<bool> isLaunchAtStartupEnabled();
 
   Future<void> setLaunchAtStartupEnabled(bool enabled);
@@ -80,6 +84,7 @@ class SystemDesktopExperience extends DesktopExperience
     );
   }
 
+  @override
   Future<void> showWindow() async {
     _refreshRequests.value++;
     if (await windowManager.isMinimized()) {
@@ -88,6 +93,10 @@ class SystemDesktopExperience extends DesktopExperience
     await windowManager.show();
     await windowManager.focus();
   }
+
+  @override
+  Future<void> setReminderOnTop(bool enabled) =>
+      windowManager.setAlwaysOnTop(enabled);
 
   @override
   Future<void> hideWindow() async {

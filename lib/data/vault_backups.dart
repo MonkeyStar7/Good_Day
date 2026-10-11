@@ -28,7 +28,14 @@ class VaultBackups {
   static final _queues = <String, OperationQueue>{};
   static int _sequence = 0;
   static const retainedCount = 7;
-  static const managedFolders = ['Tasks', 'Plans', 'Goals', 'Daily', 'Archive'];
+  static const managedFolders = [
+    'Tasks',
+    'Plans',
+    'Goals',
+    'Events',
+    'Daily',
+    'Archive',
+  ];
   Directory get directory => Directory(
     '${vault.path}${Platform.pathSeparator}.goodday${Platform.pathSeparator}backups',
   );
