@@ -7,7 +7,7 @@ import 'models/good_day_task.dart';
 import 'models/repeat_schedule.dart';
 import 'models/task_series.dart';
 import 'models/good_day_goal.dart';
-import 'task_options_dialog.dart';
+import 'task_inline_options.dart';
 
 enum TaskView { completed, uncompleted }
 
@@ -48,6 +48,7 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
   String? _error;
   Timer? _refreshTimer;
   bool _editing = false;
+  final Set<String> _optionEditors = {};
   late DateTime _loadedDate;
   @override
   void initState() {
@@ -123,31 +124,17 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
     }
   }
 
-  Future<void> _edit(GoodDayTask task) async {
-    if (_busy) return;
-    _editing = true;
-    widget.onEditingChanged(true);
-    try {
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => TaskOptionsDialog(
-          task: task,
-          now: widget.clock(),
-          onSave: (repeat, reminderAt) async {
-            await widget.repository.saveTaskOptions(
-              task: task,
-              repeat: repeat,
-              reminderAt: reminderAt,
-            );
-          },
-        ),
-      );
-      await _load();
-    } finally {
-      _editing = false;
-      widget.onEditingChanged(false);
-    }
+  Future<void> _saveOptions(
+    GoodDayTask task,
+    EventRepeat repeat,
+    DateTime? time,
+  ) async {
+    await widget.repository.saveTaskOptions(
+      task: task,
+      repeat: repeat,
+      reminderAt: time,
+    );
+    await _load();
   }
 
   Future<void> _stop(GoodDayTask task) async {
@@ -234,47 +221,59 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
             padding: EdgeInsets.symmetric(horizontal: widget.embedded ? 0 : 16),
             child: Column(
               children: [
-                Wrap(
-                  spacing: 6,
+                Row(
                   children: [
                     for (final view in TaskView.values)
-                      ChoiceChip(
-                        key: Key('task-filter-${view.name}'),
-                        label: Text(view.label),
-                        showCheckmark: false,
-                        visualDensity: VisualDensity.compact,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 3,
-                          vertical: 2,
+                      Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                            right: view == TaskView.completed ? 8 : 0,
+                          ),
+                          child: SizedBox(
+                            height: 46,
+                            child: FilledButton(
+                              key: Key('task-filter-${view.name}'),
+                              style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
+                                backgroundColor: _view == view
+                                    ? const Color(0xFFE3EBDD)
+                                    : const Color(0xFFF5F5F0),
+                                foregroundColor: _view == view
+                                    ? const Color(0xFF3D604A)
+                                    : const Color(0xFF626C64),
+                                textStyle: Theme.of(context)
+                                    .textTheme
+                                    .labelLarge
+                                    ?.copyWith(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                      color: _view == view
+                                          ? const Color(0xFF3D604A)
+                                          : const Color(0xFF626C64),
+                                    ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(11),
+                                  side: const BorderSide(
+                                    color: Color(0xFFDDE2D6),
+                                  ),
+                                ),
+                              ),
+                              onPressed: _busy || _editing
+                                  ? null
+                                  : () => setState(() => _view = view),
+                              child: Text(view.label),
+                            ),
+                          ),
                         ),
-                        labelPadding: const EdgeInsets.symmetric(horizontal: 6),
-                        labelStyle: TextStyle(
-                          fontSize: 12,
-                          color: _view == view
-                              ? const Color(0xFF3D604A)
-                              : const Color(0xFF626C64),
-                        ),
-                        selectedColor: const Color(0xFFE3EBDD),
-                        backgroundColor: const Color(0xFFF5F5F0),
-                        side: const BorderSide(
-                          color: Color(0xFFDDE2D6),
-                          width: 0.7,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(9),
-                        ),
-                        selected: _view == view,
-                        onSelected: _busy
-                            ? null
-                            : (_) => setState(() {
-                                _view = view;
-                              }),
                       ),
                   ],
                 ),
+                const SizedBox(height: 10),
                 TextField(
                   key: const Key('task-search'),
+                  enabled: !_editing,
                   style: const TextStyle(fontSize: 13),
                   decoration: InputDecoration(
                     isDense: true,
@@ -318,10 +317,12 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
                       for (final task in _visible)
                         ExpansionTile(
                           key: ValueKey('browse-task-${task.id}'),
+                          maintainState: true,
+                          enabled: !_editing,
                           leading: Checkbox(
                             key: Key('browse-complete-${task.id}'),
                             value: task.isCompleted,
-                            onChanged: _busy
+                            onChanged: _busy || _editing
                                 ? null
                                 : (value) => _run(() async {
                                     await widget.repository.setCompleted(
@@ -384,7 +385,7 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
                                 dense: true,
                                 title: Text(step.title),
                                 value: step.isCompleted,
-                                onChanged: _busy
+                                onChanged: _busy || _editing
                                     ? null
                                     : (value) => _run(() async {
                                         await widget.repository.updateSubtask(
@@ -394,14 +395,36 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
                                         );
                                       }),
                               ),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 8,
+                              ),
+                              child: TaskInlineOptions(
+                                key: ValueKey('history-options-${task.id}'),
+                                task: task,
+                                enabled:
+                                    _optionEditors.isEmpty ||
+                                    _optionEditors.contains(task.id),
+                                clock: widget.clock,
+                                onEditingChanged: (editing) {
+                                  setState(() {
+                                    if (editing) {
+                                      _optionEditors.add(task.id);
+                                    } else {
+                                      _optionEditors.remove(task.id);
+                                    }
+                                    _editing = _optionEditors.isNotEmpty;
+                                  });
+                                  widget.onEditingChanged(_editing);
+                                },
+                                onSave: (repeat, time) =>
+                                    _saveOptions(task, repeat, time),
+                              ),
+                            ),
                             Wrap(
                               spacing: 6,
                               children: [
-                                TextButton(
-                                  key: Key('browse-edit-${task.id}'),
-                                  onPressed: _busy ? null : () => _edit(task),
-                                  child: const Text('重复 / 提醒'),
-                                ),
                                 if (_series.any(
                                   (series) =>
                                       series.id == task.seriesId &&
@@ -409,11 +432,15 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
                                 ))
                                   TextButton(
                                     key: Key('stop-series-${task.id}'),
-                                    onPressed: _busy ? null : () => _stop(task),
+                                    onPressed: _busy || _editing
+                                        ? null
+                                        : () => _stop(task),
                                     child: const Text('结束重复'),
                                   ),
                                 TextButton(
-                                  onPressed: _busy ? null : () => _delete(task),
+                                  onPressed: _busy || _editing
+                                      ? null
+                                      : () => _delete(task),
                                   child: const Text('删除本次'),
                                 ),
                               ],

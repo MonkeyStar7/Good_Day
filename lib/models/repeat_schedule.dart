@@ -1,10 +1,11 @@
-enum EventRepeat { once, daily, weekdays, weekly, monthly }
+enum EventRepeat { once, daily, weekdays, weekends, weekly, monthly }
 
 extension EventRepeatLabel on EventRepeat {
   String get label => switch (this) {
     EventRepeat.once => '仅一次',
     EventRepeat.daily => '每天',
     EventRepeat.weekdays => '工作日（周一至周五）',
+    EventRepeat.weekends => '非工作日（周六、周日）',
     EventRepeat.weekly => '每周',
     EventRepeat.monthly => '每月',
   };
@@ -46,6 +47,12 @@ class RepeatSchedule {
             DateTime(candidate.year, candidate.month, candidate.day - 1),
           );
         }
+      case EventRepeat.weekends:
+        while (candidate.weekday < DateTime.saturday) {
+          candidate = _at(
+            DateTime(candidate.year, candidate.month, candidate.day - 1),
+          );
+        }
       case EventRepeat.weekly:
         candidate = _at(
           DateTime(
@@ -74,11 +81,19 @@ class RepeatSchedule {
         break;
       case EventRepeat.daily:
       case EventRepeat.weekdays:
+      case EventRepeat.weekends:
         if (!candidate.isAfter(boundary)) {
           candidate = _at(DateTime(floor.year, floor.month, floor.day + 1));
         }
         if (repeat == EventRepeat.weekdays) {
           while (candidate.weekday > DateTime.friday) {
+            candidate = _at(
+              DateTime(candidate.year, candidate.month, candidate.day + 1),
+            );
+          }
+        }
+        if (repeat == EventRepeat.weekends) {
+          while (candidate.weekday < DateTime.saturday) {
             candidate = _at(
               DateTime(candidate.year, candidate.month, candidate.day + 1),
             );

@@ -14,7 +14,7 @@ import 'data/safe_file.dart';
 import 'edit_safety.dart';
 import 'events_page.dart';
 import 'task_browser_page.dart';
-import 'task_options_dialog.dart';
+import 'task_inline_options.dart';
 import 'event_reminder_service.dart';
 import 'data/vault_repository.dart';
 import 'desktop_experience.dart';
@@ -327,6 +327,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
+  final _taskScrollController = ScrollController();
   List<GoodDayTask> _tasks = [];
   List<GoodDayPlan> _plans = [];
   List<GoodDayGoal> _goals = [];
@@ -490,6 +491,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     widget.desktopExperience?.setSaveGuard(null);
     widget.desktopExperience?.refreshRequests.removeListener(_requestRefresh);
+    _taskScrollController.dispose();
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -1266,35 +1268,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     };
   }
 
-  Future<void> _editTaskSchedule(GoodDayTask task) async {
-    if (!await _saveBeforeLeave() || !mounted) return;
-    _taskEditorOpen = true;
-    try {
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => TaskOptionsDialog(
-          task: _taskById(task.id),
-          now: _now(),
-          onSave: (repeat, reminderAt) async {
-            await _repository.saveTaskOptions(
-              task: task,
-              repeat: repeat,
-              reminderAt: reminderAt,
-            );
-          },
-        ),
-      );
-      if (mounted) await _load();
-    } finally {
-      _taskEditorOpen = false;
-    }
-  }
+  Future<void> _saveTaskOptions(
+    String taskId,
+    EventRepeat repeat,
+    DateTime? reminderAt,
+  ) => _actions.run(() async {
+    await _repository.saveTaskOptions(
+      task: _taskById(taskId),
+      repeat: repeat,
+      reminderAt: reminderAt,
+    );
+    await _load();
+  });
 
   Widget _buildTaskArea() {
     return Scrollbar(
+      controller: _taskScrollController,
       thickness: 2,
       child: ListView.builder(
+        controller: _taskScrollController,
         key: const PageStorageKey('today-list'),
         padding: EdgeInsets.zero,
         itemCount: _tasks.length + 4,
@@ -1323,7 +1315,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               onRemoveSubtask: (subtaskId) =>
                   _removeSubtask(task.id, subtaskId),
               onDelete: () => _deleteTask(task),
-              onSchedule: () => _editTaskSchedule(task),
+              clock: _now,
+              onOptionsChanged: (repeat, time) =>
+                  _saveTaskOptions(task.id, repeat, time),
+              onOptionsEditingChanged: (editing) => _taskEditorOpen = editing,
             );
           }
           if (index == _tasks.length) {
@@ -3253,7 +3248,9 @@ class _TaskTile extends StatefulWidget {
     required this.onUpdateSubtask,
     required this.onRemoveSubtask,
     required this.onDelete,
-    required this.onSchedule,
+    required this.clock,
+    required this.onOptionsChanged,
+    required this.onOptionsEditingChanged,
   });
 
   final int number;
@@ -3268,7 +3265,10 @@ class _TaskTile extends StatefulWidget {
   final SubtaskUpdateCallback onUpdateSubtask;
   final Future<void> Function(String subtaskId) onRemoveSubtask;
   final VoidCallback onDelete;
-  final VoidCallback onSchedule;
+  final DateTime Function() clock;
+  final Future<void> Function(EventRepeat repeat, DateTime? time)
+  onOptionsChanged;
+  final ValueChanged<bool> onOptionsEditingChanged;
 
   @override
   State<_TaskTile> createState() => _TaskTileState();
@@ -3289,6 +3289,7 @@ class _TaskTileState extends State<_TaskTile>
   bool _saving = false;
   bool _saved = false;
   bool _titleError = false;
+  bool _optionsEditing = false;
 
   @override
   void initState() {
@@ -3388,6 +3389,11 @@ class _TaskTileState extends State<_TaskTile>
   }
 
   Future<void> _toggleExpanded() async {
+    if (_optionsEditing) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('请先设置提醒或取消')));
+      return;
+    }
     if (widget.expanded && !await _saveDetails()) return;
     if (!mounted) return;
     widget.onToggleExpanded();
@@ -3439,7 +3445,9 @@ class _TaskTileState extends State<_TaskTile>
         ? (task.isCompleted ? _muted : _ink)
         : Color(selectedGoal.colorValue);
     return TapRegion(
-      onTapOutside: widget.expanded ? (_) => _toggleExpanded() : null,
+      onTapOutside: widget.expanded && !_optionsEditing
+          ? (_) => _toggleExpanded()
+          : null,
       child: MouseRegion(
         onEnter: (_) => setState(() => _hovering = true),
         onExit: (_) => setState(() => _hovering = false),
@@ -3471,7 +3479,7 @@ class _TaskTileState extends State<_TaskTile>
                         child: Checkbox(
                           key: Key('task-checkbox-${task.id}'),
                           value: task.isCompleted,
-                          onChanged: widget.onChanged,
+                          onChanged: _optionsEditing ? null : widget.onChanged,
                         ),
                       ),
                     ),
@@ -3549,7 +3557,7 @@ class _TaskTileState extends State<_TaskTile>
                         opacity: 1,
                         child: IconButton(
                           key: Key('delete-task-${task.id}'),
-                          onPressed: widget.onDelete,
+                          onPressed: _optionsEditing ? null : widget.onDelete,
                           tooltip: '移到垃圾桶',
                           iconSize: 14,
                           color: _muted,
@@ -3581,39 +3589,21 @@ class _TaskTileState extends State<_TaskTile>
                   ),
                 if (widget.expanded) ...[
                   Padding(
-                    padding: const EdgeInsets.only(left: 60),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton.icon(
-                        key: Key('task-repeat-settings-${task.id}'),
-                        onPressed: widget.onSchedule,
-                        icon: const Icon(Icons.event_repeat, size: 16),
-                        label: Text(
-                          task.repeat == EventRepeat.once
-                              ? '不重复'
-                              : task.repeat.label,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.only(left: 60),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton.icon(
-                        key: Key('task-reminder-settings-${task.id}'),
-                        onPressed: widget.onSchedule,
-                        icon: const Icon(Icons.notifications_none, size: 16),
-                        label: Text(
-                          task.reminder == null
-                              ? '不提醒'
-                              : '${task.reminder!.enabled
-                                    ? '提醒'
-                                    : task.reminder!.handledThrough == null
-                                    ? '已暂停'
-                                    : '已提醒'} · ${task.reminder!.startsAt.hour.toString().padLeft(2, '0')}:${task.reminder!.startsAt.minute.toString().padLeft(2, '0')}',
-                        ),
-                      ),
+                    padding: const EdgeInsets.fromLTRB(60, 2, 16, 7),
+                    child: TaskInlineOptions(
+                      task: task,
+                      clock: widget.clock,
+                      onEditingChanged: (editing) {
+                        setState(() => _optionsEditing = editing);
+                        widget.onOptionsEditingChanged(editing);
+                      },
+                      onSave: (repeat, time) async {
+                        if (!await _persistTaskDetails() ||
+                            !await _persistNewSubtask()) {
+                          throw const FileSystemException('请先填写任务名称并保存');
+                        }
+                        await widget.onOptionsChanged(repeat, time);
+                      },
                     ),
                   ),
                   Padding(

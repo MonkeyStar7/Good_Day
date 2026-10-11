@@ -143,6 +143,33 @@ void main() {
   });
 
   test(
+    'weekend tasks generate Saturday and Sunday with inherited reminder',
+    () async {
+      now = DateTime(2026, 10, 9, 9);
+      final task = await repository.addTask('周末刷题');
+      final saturday = await repository.saveTaskOptions(
+        task: task,
+        repeat: EventRepeat.weekends,
+        reminderAt: DateTime(2026, 10, 9, 10),
+      );
+      expect(saturday.scheduledDate, DateTime(2026, 10, 10));
+      expect(saturday.reminder!.startsAt, DateTime(2026, 10, 10, 10));
+      await repository.setCompleted(saturday, true);
+      final sunday = (await repository.loadTasks()).singleWhere(
+        (item) => !item.isCompleted,
+      );
+      expect(sunday.scheduledDate, DateTime(2026, 10, 11));
+      expect(sunday.reminder!.startsAt, DateTime(2026, 10, 11, 10));
+      await repository.setCompleted(sunday, true);
+      final next = (await repository.loadTasks()).singleWhere(
+        (item) => !item.isCompleted,
+      );
+      expect(next.scheduledDate, DateTime(2026, 10, 17));
+      expect(next.reminder!.startsAt, DateTime(2026, 10, 17, 10));
+    },
+  );
+
+  test(
     'editing later occurrence keeps reminder clock instead of drifting a day',
     () async {
       final first = await create(repeat: EventRepeat.daily);

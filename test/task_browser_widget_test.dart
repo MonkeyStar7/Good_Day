@@ -94,6 +94,11 @@ void main() {
         expect(find.text('明天开会'), findsNothing);
         expect(find.byKey(const Key('task-filter-tomorrow')), findsNothing);
         expect(find.byKey(const Key('task-filter-all')), findsNothing);
+        final filter = tester.getSize(
+          find.byKey(const Key('task-filter-completed')),
+        );
+        expect(filter.height, greaterThanOrEqualTo(46));
+        expect(filter.width, greaterThan(100));
         await tester.enterText(find.byKey(const Key('task-search')), '不存在');
         await tester.pumpAndSettle();
         expect(find.text('这个范围没有任务'), findsOneWidget);

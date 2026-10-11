@@ -137,8 +137,10 @@ void main() {
       await inspect('04-task-detail');
       await tester.tap(find.byKey(Key('task-reminder-settings-${task.id}')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('task-options-remind')));
+      await tester.tap(find.byKey(Key('custom-reminder-${task.id}')));
       await inspect('11-task-options');
+      await tester.ensureVisible(find.text('取消'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('取消'));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('nav-plans')));
@@ -210,9 +212,18 @@ void main() {
       expect(find.byType(AppBar), findsNothing);
       expect(find.byKey(const Key('nav-today')), findsOneWidget);
       expect(find.text('已经完成的阅读'), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.byKey(const Key('task-filter-completed')),
+            )
+            .onPressed,
+        isNotNull,
+      );
       expect(find.text('安排任务'), findsNothing);
       const capture = bool.fromEnvironment('CAPTURE_UI');
       if (capture) {
+        await tester.pumpAndSettle();
         await tester.runAsync(() async {
           final render =
               boundary.currentContext!.findRenderObject()!
@@ -224,14 +235,6 @@ void main() {
           image.dispose();
         });
       }
-      await tester.tap(find.byKey(Key('browse-task-${task.id}')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(Key('browse-edit-${task.id}')));
-      await tester.pumpAndSettle();
-      expect(await desktop.saveGuard!(), isFalse);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('取消'));
-      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('nav-plans')));
       await _flushMicrotasks(tester);
       expect(find.byKey(const Key('add-plan-button')), findsOneWidget);
@@ -279,9 +282,7 @@ void main() {
       expect(find.text('安排日期'), findsNothing);
       expect(await desktop.saveGuard!(), isFalse);
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('task-options-remind')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('save-task-options')));
+      await tester.tap(find.byKey(Key('remind-after-${task.id}-5')));
       await _flushMicrotasks(tester);
       expect(repository.tasks.single.reminder, isNotNull);
       await tester.tap(find.byKey(const Key('nav-plans')));

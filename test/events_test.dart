@@ -20,6 +20,30 @@ GoodDayEvent event({
 );
 
 void main() {
+  test('non-workdays repeat on Saturday and Sunday, never weekdays', () {
+    final item = event(
+      repeat: EventRepeat.weekends,
+      start: DateTime(2026, 10, 9, 10),
+    );
+    expect(item.dueOccurrence(DateTime(2026, 10, 9, 12)), isNull);
+    expect(item.nextOccurrenceAfter(item.startsAt), DateTime(2026, 10, 10, 10));
+    expect(
+      item.nextOccurrenceAfter(DateTime(2026, 10, 10, 10)),
+      DateTime(2026, 10, 11, 10),
+    );
+    expect(
+      item.nextOccurrenceAfter(DateTime(2026, 10, 11, 10)),
+      DateTime(2026, 10, 17, 10),
+    );
+    expect(
+      item.dueOccurrence(DateTime(2026, 10, 16, 12)),
+      DateTime(2026, 10, 11, 10),
+    );
+    expect(
+      GoodDayEvent.fromMarkdown(item.toMarkdown()).repeat,
+      EventRepeat.weekends,
+    );
+  });
   test(
     'one-off fires at the chosen lead time and stops after acknowledgement',
     () {
