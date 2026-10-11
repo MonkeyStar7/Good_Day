@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:good_day/models/good_day_task.dart';
@@ -9,6 +10,91 @@ import 'package:good_day/models/repeat_schedule.dart';
 import 'package:good_day/task_inline_options.dart';
 
 void main() {
+  testWidgets(
+    'reopening custom time resets to now and mouse wheel moves one item',
+    (tester) async {
+      var now = DateTime(2026, 10, 12, 11, 17);
+      final outer = ScrollController();
+      addTearDown(outer.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              controller: outer,
+              child: SizedBox(
+                width: 240,
+                child: TaskInlineOptions(
+                  task: GoodDayTask(
+                    id: 'clock',
+                    title: '提醒',
+                    createdAt: now,
+                    scheduledDate: now,
+                  ),
+                  clock: () => now,
+                  onSave: (_, _) async {},
+                  onEditingChanged: (_) {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.byKey(const Key('task-reminder-settings-clock')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<TextButton>(
+              find.byKey(const Key('task-reminder-settings-clock')),
+            )
+            .onPressed,
+        isNotNull,
+      );
+      now = DateTime(2026, 10, 12, 11, 23);
+      await tester.tap(find.byKey(const Key('custom-reminder-clock')));
+      await tester.pumpAndSettle();
+      CupertinoPicker picker(String name, int count) =>
+          tester.widget<CupertinoPicker>(
+            find.descendant(
+              of: find.byKey(ValueKey('wheel-$name-$count')),
+              matching: find.byType(CupertinoPicker),
+            ),
+          );
+      expect(picker('年', 201).scrollController!.selectedItem, 26);
+      expect(picker('分', 60).scrollController!.selectedItem, 23);
+      final position = tester.getCenter(
+        find.byKey(const ValueKey('wheel-分-60')),
+      );
+      final before = outer.offset;
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: position,
+          scrollDelta: const Offset(0, 120),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(picker('分', 60).scrollController!.selectedItem, 24);
+      expect(outer.offset, before);
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: position,
+          scrollDelta: const Offset(0, -600),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(picker('分', 60).scrollController!.selectedItem, 23);
+      await tester.tap(find.byKey(const Key('custom-reminder-clock')));
+      await tester.pumpAndSettle();
+      now = DateTime(2027, 1, 2, 13, 42);
+      await tester.tap(find.byKey(const Key('custom-reminder-clock')));
+      await tester.pumpAndSettle();
+      expect(picker('年', 201).scrollController!.selectedItem, 27);
+      expect(picker('月', 12).scrollController!.selectedItem, 0);
+      expect(picker('日', 31).scrollController!.selectedItem, 1);
+      expect(picker('时', 24).scrollController!.selectedItem, 13);
+      expect(picker('分', 60).scrollController!.selectedItem, 42);
+      expect(tester.takeException(), isNull);
+    },
+  );
   for (final width in [210.0, 280.0]) {
     testWidgets('inline choices, quick reminder and wheel retry at $width', (
       tester,

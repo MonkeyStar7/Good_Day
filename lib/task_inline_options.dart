@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 
 import 'models/good_day_task.dart';
 import 'models/repeat_schedule.dart';
@@ -168,7 +169,11 @@ class _TaskInlineOptionsState extends State<TaskInlineOptions> {
                   alignment: Alignment.centerLeft,
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                 ),
-                onPressed: disabled || _open ? null : _openReminder,
+                onPressed: disabled
+                    ? null
+                    : () {
+                        if (!_open) _openReminder();
+                      },
                 child: Text(
                   _reminderLabel,
                   style: const TextStyle(fontSize: 12),
@@ -227,7 +232,13 @@ class _TaskInlineOptionsState extends State<TaskInlineOptions> {
             key: Key('custom-reminder-${widget.task.id}'),
             onPressed: disabled
                 ? null
-                : () => setState(() => _custom = !_custom),
+                : () => setState(() {
+                    if (!_custom) {
+                      _resetTime();
+                      _error = null;
+                    }
+                    _custom = !_custom;
+                  }),
             child: Text(_custom ? '收起自定义时间' : '自定义时间'),
           ),
           if (_custom) ...[
@@ -380,8 +391,23 @@ class _NumberWheel extends StatefulWidget {
 }
 
 class _NumberWheelState extends State<_NumberWheel> {
-  late final FixedExtentScrollController _controller =
-      FixedExtentScrollController(initialItem: widget.selected);
+  late final FixedExtentScrollController _controller;
+  double _dragDistance = 0;
+  @override
+  void initState() {
+    super.initState();
+    _controller = FixedExtentScrollController(
+      initialItem: widget.selected,
+      keepScrollOffset: false,
+    );
+  }
+
+  void _step(int delta) {
+    if (!widget.enabled || !_controller.hasClients) return;
+    final next = (_controller.selectedItem + delta).clamp(0, widget.count - 1);
+    _controller.jumpToItem(next);
+  }
+
   @override
   void didUpdateWidget(covariant _NumberWheel oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -413,18 +439,49 @@ class _NumberWheelState extends State<_NumberWheel> {
         height: 84,
         child: IgnorePointer(
           ignoring: !widget.enabled,
-          child: CupertinoPicker.builder(
-            scrollController: _controller,
-            itemExtent: 28,
-            useMagnifier: true,
-            magnification: 1.08,
-            onSelectedItemChanged: widget.onChanged,
-            childCount: widget.count,
-            itemBuilder: (_, index) => Center(
-              child: Text(
-                widget.label(index),
-                style: Theme.of(context).textTheme.bodyMedium
-                    ?.copyWith(fontSize: 15, color: const Color(0xFF242C27)),
+          child: Listener(
+            onPointerSignal: (event) {
+              if (event is PointerScrollEvent && event.scrollDelta.dy != 0) {
+                GestureBinding.instance.pointerSignalResolver.register(event, (
+                  signal,
+                ) {
+                  _step(event.scrollDelta.dy > 0 ? 1 : -1);
+                  event.respond(allowPlatformDefault: false);
+                });
+              }
+            },
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onVerticalDragStart: (_) => _dragDistance = 0,
+              onVerticalDragUpdate: (details) {
+                _dragDistance += details.delta.dy;
+                if (_dragDistance.abs() >= 28) {
+                  _step(_dragDistance < 0 ? 1 : -1);
+                  _dragDistance = 0;
+                }
+              },
+              onTapUp: (details) {
+                if (details.localPosition.dy < 28) _step(-1);
+                if (details.localPosition.dy > 56) _step(1);
+              },
+              child: IgnorePointer(
+                child: CupertinoPicker.builder(
+                  scrollController: _controller,
+                  itemExtent: 28,
+                  useMagnifier: true,
+                  magnification: 1.08,
+                  onSelectedItemChanged: widget.onChanged,
+                  childCount: widget.count,
+                  itemBuilder: (_, index) => Center(
+                    child: Text(
+                      widget.label(index),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontSize: 15,
+                        color: const Color(0xFF242C27),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),

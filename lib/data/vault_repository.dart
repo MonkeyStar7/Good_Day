@@ -220,21 +220,6 @@ class VaultRepository {
     final tasks = await _readTasks(tasksDirectory);
     final now = _clock();
 
-    for (var i = 0; i < tasks.length; i++) {
-      final task = tasks[i];
-      if (!task.isCompleted &&
-          task.seriesId == null &&
-          DateTime(
-            task.scheduledDate.year,
-            task.scheduledDate.month,
-            task.scheduledDate.day,
-          ).isBefore(DateTime(now.year, now.month, now.day))) {
-        final rolled = task.rollForward(now);
-        tasks[i] = rolled;
-        await _writeTask(rolled);
-      }
-    }
-
     _sort(tasks);
     await _syncDaily(tasks, now);
     return tasks;
@@ -385,18 +370,27 @@ class VaultRepository {
     await file.delete();
   });
 
-  Future<GoodDayTask> addTask(String title) => _writeOperation(() async {
-    final now = _clock();
-    final task = GoodDayTask(
-      id: _newId('gd', now),
-      title: title.trim(),
-      createdAt: now,
-      scheduledDate: now,
-    );
-    await _writeTask(task);
-    await _syncDaily(await _readTasks(tasksDirectory), now);
-    return task;
-  });
+  Future<GoodDayTask> addTask(String title) =>
+      addPeriodTask(title, TaskPeriod.day);
+
+  Future<GoodDayTask> addPeriodTask(String title, TaskPeriod period) =>
+      _writeOperation(() async {
+        if (period == TaskPeriod.backlog) {
+          throw const FormatException('请选择一个安排周期');
+        }
+        if (title.trim().isEmpty) throw const FormatException('任务名称不能为空');
+        final now = _clock();
+        final task = GoodDayTask(
+          id: _newId('gd', now),
+          title: title.trim(),
+          createdAt: now,
+          scheduledDate: now,
+          period: period,
+        );
+        await _writeTask(task);
+        await _syncDaily(await _readTasks(tasksDirectory), now);
+        return task;
+      });
 
   Future<GoodDayTask> setCompleted(GoodDayTask task, bool completed) =>
       _writeOperation(() async {
@@ -487,6 +481,7 @@ class VaultRepository {
         repeatAnchor: base.repeatAnchor,
         occurrenceDate: date,
         goalId: base.goalId,
+        period: base.period,
         reminder: _reminderForDate(base, date, id),
         subtasks: [
           for (final step in base.subtasks)
@@ -516,6 +511,40 @@ class VaultRepository {
       repeat: repeat,
     ),
   );
+
+  Future<GoodDayTask> rescheduleTaskPeriod(
+    GoodDayTask task,
+    TaskPeriod period,
+  ) => _writeOperation(() async {
+    if (period == TaskPeriod.backlog) throw const FormatException('请选择一个安排周期');
+    final current = await _currentTask(task);
+    if (current.isCompleted) throw const FormatException('已完成记录无需重新安排');
+    final date = _clock();
+    final reminder = current.reminder;
+    final reminderAt = reminder == null
+        ? null
+        : reminder.startsAt.isAfter(date)
+        ? reminder.startsAt
+        : DateTime(
+            date.year,
+            date.month,
+            date.day,
+            reminder.startsAt.hour,
+            reminder.startsAt.minute,
+          );
+    return _saveScheduledTask(
+      task: current,
+      title: current.title,
+      notes: current.notes,
+      date: date,
+      repeat: current.repeat,
+      period: period,
+      preserveOriginalDate: true,
+      updateReminder: true,
+      reminderAt: reminderAt,
+      pausePastReminder: true,
+    );
+  });
 
   Future<GoodDayTask> saveTaskOptions({
     required GoodDayTask task,
@@ -642,16 +671,21 @@ class VaultRepository {
     required String notes,
     required DateTime date,
     required EventRepeat repeat,
+    TaskPeriod? period,
+    bool preserveOriginalDate = false,
+    bool pausePastReminder = false,
     bool updateReminder = false,
     DateTime? reminderAt,
   }) async {
     if (title.trim().isEmpty) throw const FormatException('任务名称不能为空');
     var current = task == null ? null : await _currentTask(task);
+    final selectedPeriod = period ?? current?.period ?? TaskPeriod.day;
     final normalized = DateTime(date.year, date.month, date.day);
     final changed =
         current == null ||
         !isSameDay(current.scheduledDate, normalized) ||
-        current.repeat != repeat;
+        current.repeat != repeat ||
+        current.period != selectedPeriod;
     if (current != null && current.isCompleted && changed) {
       throw const FormatException('已完成的记录保留原日期，请新建任务安排下一次');
     }
@@ -707,7 +741,10 @@ class VaultRepository {
       title: title.trim(),
       notes: notes.trim(),
       scheduledDate: first,
-      originalDate: first,
+      originalDate: preserveOriginalDate
+          ? current.originalScheduledDate
+          : first,
+      period: selectedPeriod,
       repeat: repeat,
       seriesId: seriesId,
       repeatAnchor: normalized,
@@ -723,6 +760,20 @@ class VaultRepository {
           saved.copyWith(scheduledDate: normalized),
           first,
           saved.id,
+        ),
+      );
+    }
+    if (pausePastReminder &&
+        saved.reminder != null &&
+        !saved.reminder!.startsAt.isAfter(now)) {
+      saved = saved.copyWith(
+        reminder: saved.reminder!.edit(
+          title: saved.title,
+          notes: saved.notes,
+          startsAt: saved.reminder!.startsAt,
+          repeat: EventRepeat.once,
+          reminderMinutes: 0,
+          enabled: false,
         ),
       );
     }

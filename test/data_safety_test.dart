@@ -76,13 +76,14 @@ void main() {
     },
   );
 
-  test('daily backup runs before rollover and retains the previous daily record', () async {
+  test('daily backup preserves overdue tasks and the previous daily record', () async {
     final task = await repository.addTask('昨天未完成');
     final yesterday = File('${vault.path}/Daily/2026-10-10.md');
     final originalDaily = await yesterday.readAsString();
     now = DateTime(2026, 10, 11, 8);
     final loaded = await repository.loadTasks();
-    expect(dateKey(loaded.single.scheduledDate), '2026-10-11');
+    expect(dateKey(loaded.single.scheduledDate), '2026-10-10');
+    expect(loaded.single.isWaitingForSchedule(now), isTrue);
     expect(await yesterday.readAsString(), originalDaily);
     final snapshot = (await repository.backups.list()).first;
     final backedUp = await File(
@@ -91,7 +92,7 @@ void main() {
     expect(backedUp, contains('scheduled: 2026-10-10'));
     expect(
       await File('${vault.path}/Daily/2026-10-11.md').readAsString(),
-      contains('昨天未完成'),
+      isNot(contains('昨天未完成')),
     );
   });
 

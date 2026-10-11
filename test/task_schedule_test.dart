@@ -43,13 +43,14 @@ void main() {
     },
   );
   test(
-    'one-off rollover preserves original schedule in persisted history',
+    'overdue one-off keeps its assignment and enters the waiting list',
     () async {
       final task = await create();
       now = DateTime(2026, 10, 15, 9);
       final rolled = (await repository.loadTasks()).single;
       expect(rolled.originalScheduledDate, DateTime(2026, 10, 12));
-      expect(isSameDay(rolled.scheduledDate, DateTime(2026, 10, 15)), isTrue);
+      expect(isSameDay(rolled.scheduledDate, DateTime(2026, 10, 12)), isTrue);
+      expect(rolled.isWaitingForSchedule(now), isTrue);
       final completed = await repository.setCompleted(task, true);
       expect(completed.originalScheduledDate, DateTime(2026, 10, 12));
       expect(GoodDayTask.fromMarkdown(completed.toMarkdown()).completedAt, now);

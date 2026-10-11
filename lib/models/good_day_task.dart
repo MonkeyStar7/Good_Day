@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'good_day_event.dart';
+import 'task_period.dart';
+export 'task_period.dart';
 
 class GoodDaySubtask {
   const GoodDaySubtask({
@@ -40,6 +42,7 @@ class GoodDayTask {
     this.occurrenceDate,
     this.originalDate,
     this.reminder,
+    this.period = TaskPeriod.day,
   });
 
   final String id;
@@ -56,6 +59,23 @@ class GoodDayTask {
   final String? seriesId;
   final DateTime? repeatAnchor, occurrenceDate, originalDate;
   final GoodDayEvent? reminder;
+  final TaskPeriod period;
+
+  bool isWaitingForSchedule(DateTime now) =>
+      deletedAt == null &&
+      !isCompleted &&
+      !period.end(scheduledDate).isAfter(now);
+
+  bool appearsIn(TaskPeriod view, DateTime now) {
+    if (deletedAt != null) return false;
+    if (view == TaskPeriod.backlog) return isWaitingForSchedule(now);
+    if (isCompleted) {
+      return period.index <= view.index &&
+          view.contains(completedAt ?? scheduledDate, now);
+    }
+    return period == view && view.contains(scheduledDate, now);
+  }
+
   GoodDayEvent? get activeReminder => isCompleted || deletedAt != null
       ? null
       : reminder?.edit(
@@ -88,6 +108,7 @@ class GoodDayTask {
     bool clearSeries = false,
     GoodDayEvent? reminder,
     bool clearReminder = false,
+    TaskPeriod? period,
   }) => GoodDayTask(
     id: id,
     title: title ?? this.title,
@@ -105,6 +126,7 @@ class GoodDayTask {
     occurrenceDate: clearSeries ? null : occurrenceDate ?? this.occurrenceDate,
     originalDate: originalDate ?? originalScheduledDate,
     reminder: clearReminder ? null : reminder ?? this.reminder,
+    period: period ?? this.period,
   );
 
   GoodDayTask setCompleted(bool completed, DateTime now) => copyWith(
@@ -165,6 +187,7 @@ class GoodDayTask {
       )
       ..writeln('created: ${createdAt.toIso8601String()}')
       ..writeln('scheduled: ${dateKey(scheduledDate)}')
+      ..writeln('period: ${period.name}')
       ..writeln('original_scheduled: ${dateKey(originalScheduledDate)}')
       ..writeln('recurrence: ${repeat.name}')
       ..writeln('series: ${seriesId ?? ''}')
@@ -281,6 +304,21 @@ class GoodDayTask {
     }
 
     final goal = values['goal']?.trim();
+    final originalScheduled =
+        DateTime.tryParse(values['original_scheduled'] ?? '') ?? scheduled;
+    // Older versions moved unfinished daily tasks forward automatically.
+    // Recover their original assignment once when introducing period views.
+    final legacyRollover =
+        !values.containsKey('period') &&
+        values['status'] == 'todo' &&
+        (values['series'] ?? '').isEmpty &&
+        originalScheduled.isBefore(scheduled);
+    final periodName = values['period'] ?? 'day';
+    if (!TaskPeriod.values.any(
+      (period) => period != TaskPeriod.backlog && period.name == periodName,
+    )) {
+      throw const FormatException('Invalid task period.');
+    }
     GoodDayEvent? reminder;
     if ((values['reminder'] ?? '').isNotEmpty) {
       final encoded = jsonDecode(values['reminder']!);
@@ -302,7 +340,8 @@ class GoodDayTask {
       id: id,
       title: lines[titleIndex].substring(2).trim(),
       createdAt: created,
-      scheduledDate: scheduled,
+      scheduledDate: legacyRollover ? originalScheduled : scheduled,
+      period: TaskPeriod.values.byName(periodName),
       isCompleted: values['status'] == 'done',
       completedAt: DateTime.tryParse(values['completed'] ?? ''),
       deletedAt: DateTime.tryParse(values['deleted'] ?? ''),

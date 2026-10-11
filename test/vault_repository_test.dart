@@ -134,7 +134,7 @@ void main() {
     expect(plan.remainingDays(DateTime(2026, 9, 18, 0, 1)), -1);
   });
 
-  test('unfinished tasks roll forward without changing the old Daily file', () async {
+  test('unfinished tasks wait for rescheduling without changing the old Daily file', () async {
     await repository.addTask('跨天任务');
     final oldDaily = File(
       '${repository.dailyDirectory.path}${Platform.pathSeparator}2026-09-08.md',
@@ -144,7 +144,8 @@ void main() {
     now = DateTime(2026, 9, 9, 8);
     final rolled = (await repository.loadTasks()).single;
 
-    expect(dateKey(rolled.scheduledDate), '2026-09-09');
+    expect(dateKey(rolled.scheduledDate), '2026-09-08');
+    expect(rolled.isWaitingForSchedule(now), isTrue);
     expect(await oldDaily.readAsString(), oldContent);
     expect(
       await File(

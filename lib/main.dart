@@ -339,6 +339,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _reminderOpen = false;
   late VaultRepository _repository;
   _HomeView _view = _HomeView.today;
+  TaskPeriod _taskPeriod = TaskPeriod.day;
   bool _loading = true;
   bool _isAdding = false;
   bool _settingsOpen = false;
@@ -506,14 +507,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() {
         _displayDate = _now();
-        _tasks = tasks
-            .where(
-              (task) =>
-                  isSameDay(task.scheduledDate, _displayDate) ||
-                  (task.completedAt != null &&
-                      isSameDay(task.completedAt!, _displayDate)),
-            )
-            .toList();
+        _tasks = tasks;
         _goals = goals;
         _plans = plans;
         _events = events;
@@ -737,7 +731,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _persistNewTask() async {
     final title = _controller.text.trim();
     if (title.isEmpty) return;
-    final task = await _repository.addTask(title);
+    final task = _taskPeriod == TaskPeriod.day
+        ? await _repository.addTask(title)
+        : await _repository.addPeriodTask(title, _taskPeriod);
     if (!mounted) return;
     setState(() {
       _controller.clear();
@@ -1073,14 +1069,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         setState(() {
           _repository = nextRepository;
           _displayDate = _now();
-          _tasks = tasks
-              .where(
-                (task) =>
-                    isSameDay(task.scheduledDate, _displayDate) ||
-                    (task.completedAt != null &&
-                        isSameDay(task.completedAt!, _displayDate)),
-              )
-              .toList();
+          _tasks = tasks;
           _goals = goals;
           _plans = plans;
           _events = events;
@@ -1157,7 +1146,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final completed = _tasks.where((task) => task.isCompleted).length;
+    final completed = _visibleTasks.where((task) => task.isCompleted).length;
     return EditScope(
       coordinator: _edits,
       child: Scaffold(
@@ -1202,8 +1191,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 _ModeHeader(
                                   mode: _view,
                                   date: _displayDate,
+                                  period: _taskPeriod,
                                   completed: completed,
-                                  total: _tasks.length,
+                                  total: _visibleTasks.length,
                                   planCount: _plans.length,
                                   goalCount: _goals.length,
                                 ),
@@ -1281,60 +1271,167 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     await _load();
   });
 
-  Widget _buildTaskArea() {
-    return Scrollbar(
-      controller: _taskScrollController,
-      thickness: 2,
-      child: ListView.builder(
-        controller: _taskScrollController,
-        key: const PageStorageKey('today-list'),
-        padding: EdgeInsets.zero,
-        itemCount: _tasks.length + 4,
-        itemBuilder: (context, index) {
-          if (index < _tasks.length) {
-            final task = _tasks[index];
-            return _TaskTile(
-              key: ValueKey(task.id),
-              number: index + 1,
-              task: task,
-              goals: _goals,
-              expanded: _expandedTaskId == task.id,
-              onToggleExpanded: () => _toggleEditor(_HomeView.today, task.id),
-              onChanged: (value) => _toggleTask(task, value),
-              onDetailsChanged: (title, notes) =>
-                  _updateTaskDetails(task.id, title, notes),
-              onGoalChanged: (goalId) => _assignTaskGoal(task.id, goalId),
-              onAddSubtask: (title) => _addSubtask(task.id, title),
-              onUpdateSubtask: (subtaskId, {title, isCompleted}) =>
-                  _updateSubtask(
-                    task.id,
-                    subtaskId,
-                    title: title,
-                    isCompleted: isCompleted,
-                  ),
-              onRemoveSubtask: (subtaskId) =>
-                  _removeSubtask(task.id, subtaskId),
-              onDelete: () => _deleteTask(task),
-              clock: _now,
-              onOptionsChanged: (repeat, time) =>
-                  _saveTaskOptions(task.id, repeat, time),
-              onOptionsEditingChanged: (editing) => _taskEditorOpen = editing,
-            );
-          }
-          if (index == _tasks.length) {
-            return _AddTaskRow(
-              number: index + 1,
-              editing: _isAdding,
-              controller: _controller,
-              focusNode: _focusNode,
-              onStart: _startAdding,
-              onAdd: _attemptAddTask,
-              onCancel: _cancelAdding,
-            );
-          }
-          return _BlankTaskRow(number: index + 1);
-        },
+  List<GoodDayTask> get _visibleTasks => _tasks
+      .where((task) => task.appearsIn(_taskPeriod, _displayDate))
+      .toList();
+
+  Future<void> _changeTaskPeriod(TaskPeriod period) async {
+    if (!await _saveBeforeLeave() || !mounted) return;
+    setState(() {
+      _taskPeriod = period;
+      _expandedTaskId = null;
+      _isAdding = false;
+    });
+    if (_taskScrollController.hasClients) _taskScrollController.jumpTo(0);
+  }
+
+  Future<void> _reassignTask(GoodDayTask task, TaskPeriod period) async {
+    try {
+      await _repository.rescheduleTaskPeriod(_taskById(task.id), period);
+      await _load();
+    } finally {
+      _taskEditorOpen = false;
+    }
+  }
+
+  Widget _taskTile(GoodDayTask task, int number) {
+    return _TaskTile(
+      key: ValueKey(task.id),
+      number: number,
+      task: task,
+      goals: _goals,
+      expanded: _expandedTaskId == task.id,
+      onToggleExpanded: () => _toggleEditor(_HomeView.today, task.id),
+      onChanged: (value) => _toggleTask(task, value),
+      onDetailsChanged: (title, notes) =>
+          _updateTaskDetails(task.id, title, notes),
+      onGoalChanged: (goalId) => _assignTaskGoal(task.id, goalId),
+      onAddSubtask: (title) => _addSubtask(task.id, title),
+      onUpdateSubtask: (subtaskId, {title, isCompleted}) => _updateSubtask(
+        task.id,
+        subtaskId,
+        title: title,
+        isCompleted: isCompleted,
       ),
+      onRemoveSubtask: (subtaskId) => _removeSubtask(task.id, subtaskId),
+      onDelete: () => _deleteTask(task),
+      onReassign: _taskPeriod == TaskPeriod.backlog
+          ? (period) => _reassignTask(task, period)
+          : null,
+      clock: _now,
+      onOptionsChanged: (repeat, time) =>
+          _saveTaskOptions(task.id, repeat, time),
+      onOptionsEditingChanged: (editing) => _taskEditorOpen = editing,
+    );
+  }
+
+  Widget _taskSection(String label, int count) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 12),
+    child: Text(
+      '$label · $count',
+      style: const TextStyle(
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+        color: _muted,
+      ),
+    ),
+  );
+
+  Widget _buildTaskArea() {
+    final tasks = _visibleTasks;
+    final ongoing = tasks.where((task) => !task.isCompleted).toList();
+    final completed = tasks.where((task) => task.isCompleted).toList()
+      ..sort(
+        (a, b) => (b.completedAt ?? b.scheduledDate).compareTo(
+          a.completedAt ?? a.scheduledDate,
+        ),
+      );
+    return Column(
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Wrap(
+            spacing: 4,
+            runSpacing: 4,
+            children: [
+              for (final period in TaskPeriod.values)
+                ChoiceChip(
+                  key: Key('task-period-${period.name}'),
+                  label: Text(
+                    period == TaskPeriod.backlog &&
+                            _tasks.any(
+                              (task) => task.isWaitingForSchedule(_displayDate),
+                            )
+                        ? '${period.label} ${_tasks.where((task) => task.isWaitingForSchedule(_displayDate)).length}'
+                        : period.label,
+                  ),
+                  showCheckmark: false,
+                  selected: _taskPeriod == period,
+                  visualDensity: VisualDensity.compact,
+                  labelStyle: Theme.of(context).textTheme.labelLarge
+                      ?.copyWith(fontSize: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  onSelected: (_) => _changeTaskPeriod(period),
+                ),
+            ],
+          ),
+        ),
+        if (_taskPeriod == TaskPeriod.backlog)
+          const Padding(
+            padding: EdgeInsets.only(top: 6),
+            child: Text(
+              '保留原记录，展开后可重新安排',
+              style: TextStyle(fontSize: 12, color: _muted),
+            ),
+          ),
+        Expanded(
+          child: Scrollbar(
+            controller: _taskScrollController,
+            thickness: 2,
+            child: ListView(
+              controller: _taskScrollController,
+              key: const PageStorageKey('today-list'),
+              padding: EdgeInsets.zero,
+              children: [
+                _taskSection('进行中', ongoing.length),
+                for (var index = 0; index < ongoing.length; index++)
+                  _taskTile(ongoing[index], index + 1),
+                if (_taskPeriod != TaskPeriod.backlog)
+                  _AddTaskRow(
+                    number: ongoing.length + 1,
+                    editing: _isAdding,
+                    controller: _controller,
+                    focusNode: _focusNode,
+                    onStart: _startAdding,
+                    onAdd: _attemptAddTask,
+                    onCancel: _cancelAdding,
+                  ),
+                if (ongoing.isEmpty && _taskPeriod == TaskPeriod.backlog)
+                  const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      '没有等待安排的任务',
+                      style: TextStyle(fontSize: 12, color: _muted),
+                    ),
+                  ),
+                if (_taskPeriod != TaskPeriod.backlog) ...[
+                  _taskSection('已完成', completed.length),
+                  for (var index = 0; index < completed.length; index++)
+                    _taskTile(completed[index], index + 1),
+                  if (completed.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                        '这个周期还没有已完成记录',
+                        style: TextStyle(fontSize: 12, color: _muted),
+                      ),
+                    ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1717,9 +1814,11 @@ class _ModeHeader extends StatelessWidget {
     required this.total,
     required this.planCount,
     required this.goalCount,
+    this.period = TaskPeriod.day,
   });
   final _HomeView mode;
   final DateTime date;
+  final TaskPeriod period;
   final int completed, total, planCount, goalCount;
   static String label(_HomeView view) => switch (view) {
     _HomeView.today => '待办',
@@ -1730,6 +1829,15 @@ class _ModeHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const weekdays = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
+    final taskDateLabel = switch (period) {
+      TaskPeriod.day =>
+        '${date.month}月${date.day}日  ${weekdays[date.weekday - 1]}',
+      TaskPeriod.week =>
+        '${dateKey(period.start(date))} — ${dateKey(DateTime(period.end(date).year, period.end(date).month, period.end(date).day - 1))}',
+      TaskPeriod.month => '${date.year}年${date.month}月',
+      TaskPeriod.year => '${date.year}年',
+      TaskPeriod.backlog => '过期未完成，等待重新安排',
+    };
     final count = switch (mode) {
       _HomeView.today => '$completed / $total 完成',
       _HomeView.plans => '$planCount 项计划',
@@ -1759,7 +1867,7 @@ class _ModeHeader extends StatelessWidget {
         const SizedBox(height: 6),
         Text(
           mode == _HomeView.today
-              ? '${date.month}月${date.day}日  ${weekdays[date.weekday - 1]}'
+              ? taskDateLabel
               : switch (mode) {
                   _HomeView.plans => '给下一步留一个位置',
                   _HomeView.goals => '让每天的行动有方向',
@@ -3251,6 +3359,7 @@ class _TaskTile extends StatefulWidget {
     required this.clock,
     required this.onOptionsChanged,
     required this.onOptionsEditingChanged,
+    this.onReassign,
   });
 
   final int number;
@@ -3269,6 +3378,7 @@ class _TaskTile extends StatefulWidget {
   final Future<void> Function(EventRepeat repeat, DateTime? time)
   onOptionsChanged;
   final ValueChanged<bool> onOptionsEditingChanged;
+  final Future<void> Function(TaskPeriod period)? onReassign;
 
   @override
   State<_TaskTile> createState() => _TaskTileState();
@@ -3588,6 +3698,55 @@ class _TaskTileState extends State<_TaskTile>
                     ),
                   ),
                 if (widget.expanded) ...[
+                  if (widget.onReassign != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(60, 0, 16, 4),
+                      child: PopupMenuButton<TaskPeriod>(
+                        key: Key('reassign-task-${task.id}'),
+                        onOpened: () {
+                          setState(() => _optionsEditing = true);
+                          widget.onOptionsEditingChanged(true);
+                        },
+                        onCanceled: () {
+                          setState(() => _optionsEditing = false);
+                          widget.onOptionsEditingChanged(false);
+                        },
+                        onSelected: (period) async {
+                          try {
+                            if (!await _persistTaskDetails()) return;
+                            await widget.onReassign!(period);
+                          } catch (error) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('重新安排失败：$error')),
+                              );
+                            }
+                          } finally {
+                            if (mounted) {
+                              setState(() => _optionsEditing = false);
+                            }
+                            widget.onOptionsEditingChanged(false);
+                          }
+                        },
+                        itemBuilder: (_) => [
+                          for (final period in TaskPeriod.values.where(
+                            (p) => p != TaskPeriod.backlog,
+                          ))
+                            PopupMenuItem(
+                              value: period,
+                              child: Text('安排到${period.label}'),
+                            ),
+                        ],
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          child: Text(
+                            '重新安排 · ${task.period.label} ${dateKey(task.scheduledDate)} ▾',
+                            style: const TextStyle(fontSize: 12, color: _muted),
+                          ),
+                        ),
+                      ),
+                    ),
+
                   Padding(
                     padding: const EdgeInsets.fromLTRB(60, 2, 16, 7),
                     child: TaskInlineOptions(

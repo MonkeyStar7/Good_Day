@@ -18,6 +18,80 @@ import 'package:good_day/models/task_series.dart';
 import 'package:good_day/task_browser_page.dart';
 
 void main() {
+  testWidgets(
+    'period pages separate ongoing tasks and aggregate completions, with manual rescheduling',
+    (tester) async {
+      var now = DateTime(2026, 9, 8, 9, 30);
+      final repository = _MemoryRepository(clock: () => now);
+      final daily = await repository.addTask('今日三套卷子');
+      final weekly = await repository.addPeriodTask('本周一整本', TaskPeriod.week);
+      await tester.pumpWidget(
+        GoodDayApp(
+          repository: repository,
+          settingsController: AppSettingsController.inMemory(),
+          clock: () => now,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('今日三套卷子'), findsOneWidget);
+      expect(find.text('本周一整本'), findsNothing);
+      await tester.tap(find.byKey(Key('task-checkbox-${daily.id}')));
+      await tester.pumpAndSettle();
+      final label = tester.widget<Text>(
+        find
+            .descendant(
+              of: find.byKey(Key('task-content-${daily.id}')),
+              matching: find.byType(Text),
+            )
+            .first,
+      );
+      expect(label.style!.decoration, TextDecoration.lineThrough);
+      await tester.tap(find.byKey(const Key('task-period-week')));
+      await tester.pumpAndSettle();
+      expect(find.text('本周一整本'), findsOneWidget);
+      expect(find.text('今日三套卷子'), findsOneWidget);
+      await tester.tap(find.byKey(Key('task-checkbox-${weekly.id}')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('task-period-month')));
+      await tester.pumpAndSettle();
+      expect(find.text('本周一整本'), findsOneWidget);
+      expect(find.text('今日三套卷子'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('add-task-button')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('new-task-field')), '本月完成课程');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      expect(repository.tasks.last.period, TaskPeriod.month);
+      now = DateTime(2026, 10, 1, 9);
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+      expect(find.text('今日三套卷子'), findsNothing);
+      expect(find.text('本周一整本'), findsNothing);
+      expect(find.text('本月完成课程'), findsNothing);
+      await tester.tap(find.byKey(const Key('task-period-year')));
+      await tester.pumpAndSettle();
+      expect(find.text('今日三套卷子'), findsOneWidget);
+      expect(find.text('本周一整本'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('task-period-backlog')));
+      await tester.pumpAndSettle();
+      expect(find.text('本月完成课程'), findsOneWidget);
+      expect(find.byKey(const Key('add-task-button')), findsNothing);
+      final waiting = repository.tasks.last;
+      await tester.tap(find.byKey(Key('task-content-${waiting.id}')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(Key('reassign-task-${waiting.id}')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('安排到本周'));
+      await tester.pumpAndSettle();
+      expect(find.text('本月完成课程'), findsNothing);
+      await tester.tap(find.byKey(const Key('task-period-week')));
+      await tester.pumpAndSettle();
+      expect(find.text('本月完成课程'), findsOneWidget);
+      expect(repository.tasks.last.period, TaskPeriod.week);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
   for (final width in [400.0, 340.0]) {
     testWidgets('quiet layout and inline editing at width $width', (
       tester,
@@ -139,6 +213,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(Key('custom-reminder-${task.id}')));
       await inspect('11-task-options');
+      await tester.ensureVisible(
+        find.byKey(ValueKey('reminder-wheels-${task.id}')),
+      );
+      await inspect('12-task-options-scrolled');
       await tester.ensureVisible(find.text('取消'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('取消'));
@@ -452,6 +530,7 @@ void main() {
       expect(repository.tasks.single.subtasks, hasLength(1));
       expect(find.byKey(Key('task-note-${task.id}')), findsNothing);
 
+      await tester.pumpAndSettle();
       await tester.tap(
         find.byKey(Key('subtask-checkbox-${task.id}-${subtask.id}')),
       );
@@ -847,7 +926,7 @@ void main() {
   );
 
   testWidgets(
-    'midnight refresh and resume roll tasks once and exclude yesterday completion',
+    'midnight refresh and resume move overdue tasks to waiting and preserve history',
     (tester) async {
       var now = DateTime(2026, 9, 8, 23, 59, 55);
       final repository = _RolloverRepository(clock: () => now);
@@ -867,14 +946,19 @@ void main() {
       await tester.pump(const Duration(seconds: 30));
       await tester.pumpAndSettle();
       expect(find.text('9月9日  星期三'), findsOneWidget);
-      expect(find.text('留到明天'), findsOneWidget);
+      expect(find.text('留到明天'), findsNothing);
       expect(find.text('昨天完成'), findsNothing);
-      expect(dateKey(repository.tasks.first.scheduledDate), '2026-09-09');
+      expect(dateKey(repository.tasks.first.scheduledDate), '2026-09-08');
+      await tester.tap(find.byKey(const Key('task-period-backlog')));
+      await tester.pumpAndSettle();
+      expect(find.text('留到明天'), findsOneWidget);
       now = DateTime(2026, 9, 11, 8);
       desktop.refreshRequests.value++;
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('task-period-day')));
+      await tester.pumpAndSettle();
       expect(find.text('9月11日  星期五'), findsOneWidget);
-      expect(dateKey(repository.tasks.first.scheduledDate), '2026-09-11');
+      expect(dateKey(repository.tasks.first.scheduledDate), '2026-09-08');
       expect(tester.takeException(), isNull);
     },
   );
@@ -982,6 +1066,18 @@ class _MemoryRepository extends VaultRepository {
             ),
     ),
   );
+
+  @override
+  Future<GoodDayTask> addPeriodTask(String title, TaskPeriod period) async {
+    final task = await addTask(title);
+    return _replace(task.copyWith(period: period));
+  }
+
+  @override
+  Future<GoodDayTask> rescheduleTaskPeriod(
+    GoodDayTask task,
+    TaskPeriod period,
+  ) async => _replace(task.copyWith(period: period, scheduledDate: now));
 
   @override
   Future<GoodDayTask> addTask(String title) async {
@@ -1227,14 +1323,4 @@ class _SlowEditRepository extends _MemoryRepository {
 
 class _RolloverRepository extends _MemoryRepository {
   _RolloverRepository({required super.clock});
-  @override
-  Future<List<GoodDayTask>> loadTasks() async {
-    for (var index = 0; index < tasks.length; index++) {
-      if (!tasks[index].isCompleted &&
-          tasks[index].scheduledDate.isBefore(now)) {
-        tasks[index] = tasks[index].rollForward(now);
-      }
-    }
-    return List.of(tasks);
-  }
 }
