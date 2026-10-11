@@ -320,7 +320,8 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
                           title: Text(
                             task.title,
                             style: TextStyle(
-                              fontSize: 15,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
                               color:
                                   widget.goals
                                           .where(
@@ -354,8 +355,8 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
                                 ),
                               Text(
                                 task.isCompleted
-                                    ? '完成于 ${dateKey(task.completedAt ?? task.scheduledDate)}'
-                                    : '记录于 ${dateKey(task.originalScheduledDate)}${task.repeat == EventRepeat.once ? '' : ' · ${task.repeat.label}'}',
+                                    ? '${task.period.taskLabel} · 完成于 ${dateKey(task.completedAt ?? task.scheduledDate)}'
+                                    : '${task.period.taskLabel} · 记录于 ${dateKey(task.originalScheduledDate)}${task.repeat == EventRepeat.once ? '' : ' · ${task.repeat.label}'}',
                                 style: const TextStyle(fontSize: 11),
                               ),
                             ],

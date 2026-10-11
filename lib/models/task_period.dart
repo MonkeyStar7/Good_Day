@@ -1,6 +1,14 @@
 enum TaskPeriod { day, week, month, year, backlog }
 
 extension TaskPeriodRange on TaskPeriod {
+  String get shortLabel => switch (this) {
+    TaskPeriod.day => '日',
+    TaskPeriod.week => '周',
+    TaskPeriod.month => '月',
+    TaskPeriod.year => '年',
+    TaskPeriod.backlog => '待安排',
+  };
+  String get taskLabel => '$shortLabel待办';
   String get label => switch (this) {
     TaskPeriod.day => '今日',
     TaskPeriod.week => '本周',

@@ -34,6 +34,12 @@ const _goalPalette = <Color>[
   Color(0xFF66899B),
   Color(0xFF8779A6),
   Color(0xFF9A8371),
+  Color(0xFFCE6881),
+  Color(0xFF569FA0),
+  Color(0xFF6086C4),
+  Color(0xFFA7AA55),
+  Color(0xFFD99038),
+  Color(0xFF666B78),
 ];
 
 enum _HomeView { today, plans, goals, history }
@@ -1277,11 +1283,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     String taskId,
     EventRepeat repeat,
     DateTime? reminderAt,
+    int interval,
   ) => _actions.run(() async {
     await _repository.saveTaskOptions(
       task: _taskById(taskId),
       repeat: repeat,
       reminderAt: reminderAt,
+      reminderIntervalMinutes: interval,
     );
     await _load();
   });
@@ -1313,6 +1321,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return _TaskTile(
       key: ValueKey(task.id),
       number: number,
+      showPeriodLabel: task.isCompleted && _taskPeriod != TaskPeriod.day,
       task: task,
       goals: _goals,
       expanded: _expandedTaskId == task.id,
@@ -1334,8 +1343,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ? (period) => _reassignTask(task, period)
           : null,
       clock: _now,
-      onOptionsChanged: (repeat, time) =>
-          _saveTaskOptions(task.id, repeat, time),
+      onOptionsChanged: (repeat, time, interval) =>
+          _saveTaskOptions(task.id, repeat, time, interval),
       onOptionsEditingChanged: (editing) => _taskEditorOpen = editing,
     );
   }
@@ -1364,35 +1373,37 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
     return Column(
       children: [
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Wrap(
-            spacing: 2,
-            children: [
-              for (final period in TaskPeriod.values)
-                Semantics(
-                  selected: _taskPeriod == period,
-                  button: true,
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      key: Key('task-period-${period.name}'),
-                      borderRadius: BorderRadius.circular(8),
-                      hoverColor: context.appColors.hover,
-                      onTap: () => _changeTaskPeriod(period),
-                      child: SizedBox(
-                        height: 44,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                          child: Center(
-                            widthFactor: 1,
+        SizedBox(
+          height: 52,
+          child: Align(
+            alignment: Alignment.bottomLeft,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (final period in TaskPeriod.values)
+                  Semantics(
+                    selected: _taskPeriod == period,
+                    button: true,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        key: Key('task-period-${period.name}'),
+                        borderRadius: BorderRadius.circular(8),
+                        hoverColor: context.appColors.hover,
+                        onTap: () => _changeTaskPeriod(period),
+                        child: AnimatedSize(
+                          duration: const Duration(milliseconds: 180),
+                          alignment: Alignment.bottomLeft,
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(6, 8, 6, 9),
                             child: Text(
                               period.label,
                               style: TextStyle(
-                                fontSize: _taskPeriod == period ? 23 : 13,
-                                height: 1.2,
+                                fontSize: _taskPeriod == period ? 24 : 13,
+                                height: 1.15,
                                 fontWeight: _taskPeriod == period
-                                    ? FontWeight.w600
+                                    ? FontWeight.w700
                                     : FontWeight.w400,
                                 color: _taskPeriod == period
                                     ? context.appColors.accent
@@ -1404,8 +1415,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
+          ),
+        ),
+        Container(
+          key: const Key('period-navigation-line'),
+          height: 1.3,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                context.appColors.line.withValues(alpha: 0.3),
+                context.appColors.accent.withValues(alpha: 0.5),
+                context.appColors.line.withValues(alpha: 0.3),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 12),
@@ -1431,6 +1455,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   _taskTile(ongoing[index], index + 1),
                 if (_taskPeriod != TaskPeriod.backlog)
                   _AddTaskRow(
+                    period: _taskPeriod,
                     number: ongoing.length + 1,
                     editing: _isAdding,
                     controller: _controller,
@@ -1984,6 +2009,7 @@ class _ModeHeader extends StatelessWidget {
 
 class _AddTaskRow extends StatelessWidget {
   const _AddTaskRow({
+    required this.period,
     required this.number,
     required this.editing,
     required this.controller,
@@ -1993,6 +2019,7 @@ class _AddTaskRow extends StatelessWidget {
     required this.onCancel,
   });
 
+  final TaskPeriod period;
   final int number;
   final bool editing;
   final TextEditingController controller;
@@ -2066,7 +2093,7 @@ class _AddTaskRow extends StatelessWidget {
                   Icon(Icons.add, size: 18, color: context.appColors.accent),
                   const SizedBox(width: 10),
                   Text(
-                    '添加待办任务',
+                    '添加${period.label}待办任务',
                     style: TextStyle(
                       fontSize: 13,
                       color: context.appColors.muted,
@@ -2373,8 +2400,8 @@ class _GoalTileState extends State<_GoalTile>
                           onSubmitted: (_) => _saveDetails(),
                           style: TextStyle(
                             color: context.appColors.ink,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
                           ),
                           decoration: InputDecoration(
                             border: InputBorder.none,
@@ -2399,7 +2426,7 @@ class _GoalTileState extends State<_GoalTile>
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 color: context.appColors.ink,
-                                fontSize: 14,
+                                fontSize: 16,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -2458,37 +2485,19 @@ class _GoalTileState extends State<_GoalTile>
                   spacing: 4,
                   runSpacing: 8,
                   children: [
-                    for (
-                      var index = 0;
-                      index < _goalPalette.length;
-                      index++
-                    ) ...[
-                      InkWell(
+                    for (var index = 0; index < _goalPalette.length; index++)
+                      _ColorChoice(
                         key: Key('edit-goal-color-${goal.id}-$index'),
+                        color: _goalPalette[index],
+                        selected: _colorValue == _goalPalette[index].toARGB32(),
+                        label: '目标颜色 ${index + 1}',
                         onTap: () {
-                          setState(() {
-                            _colorValue = _goalPalette[index].toARGB32();
-                          });
+                          setState(
+                            () => _colorValue = _goalPalette[index].toARGB32(),
+                          );
                           _scheduleSave();
                         },
-                        child: Container(
-                          width: 18,
-                          height: 18,
-                          decoration: BoxDecoration(
-                            color: _goalPalette[index],
-                            border: Border.all(
-                              color:
-                                  _colorValue == _goalPalette[index].toARGB32()
-                                  ? context.appColors.ink
-                                  : Colors.transparent,
-                              width: 1.4,
-                            ),
-                          ),
-                        ),
                       ),
-                      if (index != _goalPalette.length - 1)
-                        const SizedBox(width: 9),
-                    ],
                     const SizedBox(width: 8),
                     if (_saving || _saved || _nameError)
                       Text(
@@ -2696,31 +2705,20 @@ class _GoalComposerState extends State<_GoalComposer>
             ),
             Padding(
               padding: const EdgeInsets.only(left: 26),
-              child: Row(
+              child: Wrap(
+                spacing: 2,
+                runSpacing: 4,
                 children: [
-                  for (var index = 0; index < _goalPalette.length; index++) ...[
-                    InkWell(
+                  for (var index = 0; index < _goalPalette.length; index++)
+                    _ColorChoice(
                       key: Key('goal-color-$index'),
+                      color: _goalPalette[index],
+                      selected: _colorValue == _goalPalette[index].toARGB32(),
+                      label: '目标颜色 ${index + 1}',
                       onTap: () => setState(
                         () => _colorValue = _goalPalette[index].toARGB32(),
                       ),
-                      child: Container(
-                        width: 20,
-                        height: 20,
-                        decoration: BoxDecoration(
-                          color: _goalPalette[index],
-                          border: Border.all(
-                            color: _colorValue == _goalPalette[index].toARGB32()
-                                ? context.appColors.ink
-                                : Colors.transparent,
-                            width: 1.5,
-                          ),
-                        ),
-                      ),
                     ),
-                    if (index != _goalPalette.length - 1)
-                      const SizedBox(width: 9),
-                  ],
                 ],
               ),
             ),
@@ -2952,7 +2950,8 @@ class _PlanTileState extends State<_PlanTile>
                             color: plan.isCompleted
                                 ? context.appColors.muted
                                 : context.appColors.ink,
-                            fontSize: 14,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
                             decoration: plan.isCompleted
                                 ? TextDecoration.lineThrough
                                 : TextDecoration.none,
@@ -2982,7 +2981,8 @@ class _PlanTileState extends State<_PlanTile>
                                 color: plan.isCompleted
                                     ? context.appColors.muted
                                     : context.appColors.ink,
-                                fontSize: 14,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
                                 decoration: plan.isCompleted
                                     ? TextDecoration.lineThrough
                                     : TextDecoration.none,
@@ -3073,14 +3073,29 @@ class _PlanTileState extends State<_PlanTile>
                           setState(() => _goalId = null);
                           _scheduleSave();
                         },
-                        child: Container(
-                          width: 16,
-                          height: 16,
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: _goalId == null
-                                  ? context.appColors.ink
-                                  : context.appColors.line,
+                        child: SizedBox(
+                          width: 36,
+                          height: 36,
+                          child: Center(
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 160),
+                              width: _goalId == null ? 28 : 18,
+                              height: _goalId == null ? 28 : 18,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: context.appColors.line,
+                                ),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  '无',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: context.appColors.muted,
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -3095,16 +3110,18 @@ class _PlanTileState extends State<_PlanTile>
                               setState(() => _goalId = goal.id);
                               _scheduleSave();
                             },
-                            child: Container(
-                              width: 16,
-                              height: 16,
-                              decoration: BoxDecoration(
-                                color: Color(goal.colorValue),
-                                border: Border.all(
-                                  color: _goalId == goal.id
-                                      ? context.appColors.ink
-                                      : Colors.transparent,
-                                  width: 1.5,
+                            child: SizedBox(
+                              width: 36,
+                              height: 36,
+                              child: Center(
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 160),
+                                  width: _goalId == goal.id ? 28 : 18,
+                                  height: _goalId == goal.id ? 28 : 18,
+                                  decoration: BoxDecoration(
+                                    color: Color(goal.colorValue),
+                                    shape: BoxShape.circle,
+                                  ),
                                 ),
                               ),
                             ),
@@ -3402,14 +3419,27 @@ class _PlanComposerState extends State<_PlanComposer>
                     const SizedBox(width: 10),
                     InkWell(
                       onTap: () => setState(() => _goalId = null),
-                      child: Container(
-                        width: 16,
-                        height: 16,
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: _goalId == null
-                                ? context.appColors.ink
-                                : context.appColors.line,
+                      child: SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: Center(
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 160),
+                            width: _goalId == null ? 28 : 18,
+                            height: _goalId == null ? 28 : 18,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(color: context.appColors.line),
+                            ),
+                            child: Center(
+                              child: Text(
+                                '无',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: context.appColors.muted,
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -3421,16 +3451,18 @@ class _PlanComposerState extends State<_PlanComposer>
                         child: InkWell(
                           key: Key('plan-goal-${goal.id}'),
                           onTap: () => setState(() => _goalId = goal.id),
-                          child: Container(
-                            width: 16,
-                            height: 16,
-                            decoration: BoxDecoration(
-                              color: Color(goal.colorValue),
-                              border: Border.all(
-                                color: _goalId == goal.id
-                                    ? context.appColors.ink
-                                    : Colors.transparent,
-                                width: 1.5,
+                          child: SizedBox(
+                            width: 36,
+                            height: 36,
+                            child: Center(
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 160),
+                                width: _goalId == goal.id ? 28 : 18,
+                                height: _goalId == goal.id ? 28 : 18,
+                                decoration: BoxDecoration(
+                                  color: Color(goal.colorValue),
+                                  shape: BoxShape.circle,
+                                ),
                               ),
                             ),
                           ),
@@ -3515,6 +3547,7 @@ typedef SubtaskUpdateCallback = Future<void> Function(
 class _TaskTile extends StatefulWidget {
   const _TaskTile({
     super.key,
+    this.showPeriodLabel = false,
     required this.number,
     required this.task,
     required this.goals,
@@ -3533,6 +3566,7 @@ class _TaskTile extends StatefulWidget {
     this.onReassign,
   });
 
+  final bool showPeriodLabel;
   final int number;
   final GoodDayTask task;
   final List<GoodDayGoal> goals;
@@ -3546,7 +3580,7 @@ class _TaskTile extends StatefulWidget {
   final Future<void> Function(String subtaskId) onRemoveSubtask;
   final VoidCallback onDelete;
   final DateTime Function() clock;
-  final Future<void> Function(EventRepeat repeat, DateTime? time)
+  final Future<void> Function(EventRepeat repeat, DateTime? time, int interval)
   onOptionsChanged;
   final ValueChanged<bool> onOptionsEditingChanged;
   final Future<void> Function(TaskPeriod period)? onReassign;
@@ -3781,7 +3815,8 @@ class _TaskTileState extends State<_TaskTile>
                               onSubmitted: (_) => _saveDetails(),
                               style: TextStyle(
                                 color: titleColor,
-                                fontSize: 14,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
                                 decoration: task.isCompleted
                                     ? TextDecoration.lineThrough
                                     : TextDecoration.none,
@@ -3813,7 +3848,8 @@ class _TaskTileState extends State<_TaskTile>
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       color: titleColor,
-                                      fontSize: 14,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
                                       height: 1.25,
                                       decoration: task.isCompleted
                                           ? TextDecoration.lineThrough
@@ -3825,6 +3861,19 @@ class _TaskTileState extends State<_TaskTile>
                             ),
                     ),
 
+                    if (widget.showPeriodLabel)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 4),
+                        child: Text(
+                          task.period.shortLabel,
+                          key: Key('task-period-label-${task.id}'),
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: context.appColors.muted,
+                          ),
+                        ),
+                      ),
                     IconButton(
                       key: Key('task-expand-${task.id}'),
                       onPressed: _toggleExpanded,
@@ -3935,12 +3984,12 @@ class _TaskTileState extends State<_TaskTile>
                         setState(() => _optionsEditing = editing);
                         widget.onOptionsEditingChanged(editing);
                       },
-                      onSave: (repeat, time) async {
+                      onSave: (repeat, time, interval) async {
                         if (!await _persistTaskDetails() ||
                             !await _persistNewSubtask()) {
                           throw const FileSystemException('请先填写任务名称并保存');
                         }
-                        await widget.onOptionsChanged(repeat, time);
+                        await widget.onOptionsChanged(repeat, time, interval);
                       },
                     ),
                   ),
@@ -4538,19 +4587,26 @@ class _SettingsPageState extends State<SettingsPage> {
                           ],
                         ),
                       ),
-                    _PreferenceRow(
-                      label: '主题颜色',
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          for (final accent in AppAccent.values)
-                            _AccentOption(
-                              option: accent,
-                              selected: settings.accent == accent,
-                              onTap: () => widget.controller.setAccent(accent),
-                            ),
-                        ],
+                    const SizedBox(height: 12),
+                    Text(
+                      '主题颜色',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.appColors.muted,
                       ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 4,
+                      runSpacing: 6,
+                      children: [
+                        for (final accent in AppAccent.values)
+                          _AccentOption(
+                            option: accent,
+                            selected: settings.accent == accent,
+                            onTap: () => widget.controller.setAccent(accent),
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 8),
                     Divider(height: 1, color: context.appColors.line),
@@ -5142,29 +5198,58 @@ class _AccentOption extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
+  Widget build(BuildContext context) => _ColorChoice(
+    key: Key('accent-${option.key}'),
+    color: option.color,
+    selected: selected,
+    label: option.label,
+    onTap: onTap,
+  );
+}
+
+class _ColorChoice extends StatelessWidget {
+  const _ColorChoice({
+    super.key,
+    required this.color,
+    required this.selected,
+    required this.label,
+    required this.onTap,
+  });
+  final Color color;
+  final bool selected;
+  final String label;
+  final VoidCallback onTap;
+  @override
   Widget build(BuildContext context) => Semantics(
     button: true,
     selected: selected,
-    label: option.label,
+    label: label,
     child: Tooltip(
-      message: option.label,
+      message: label,
       child: InkWell(
-        key: Key('accent-${option.key}'),
         onTap: onTap,
+        customBorder: const CircleBorder(),
         child: SizedBox(
           width: 36,
-          height: 40,
+          height: 36,
           child: Center(
-            child: Container(
-              width: 24,
-              height: 24,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              width: selected ? 28 : 18,
+              height: selected ? 28 : 18,
               decoration: BoxDecoration(
-                color: option.color,
+                color: color,
                 shape: BoxShape.circle,
+                boxShadow: selected
+                    ? [
+                        BoxShadow(
+                          color: color.withValues(alpha: 0.22),
+                          blurRadius: 6,
+                          spreadRadius: 1,
+                        ),
+                      ]
+                    : [],
               ),
-              child: selected
-                  ? const Icon(Icons.check, color: Colors.white, size: 14)
-                  : null,
             ),
           ),
         ),

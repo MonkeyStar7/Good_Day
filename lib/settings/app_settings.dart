@@ -29,7 +29,13 @@ enum AppAccent {
   graphite('graphite', '石墨', Color(0xFF343A36)),
   forest('forest', '松绿', Color(0xFF365D46)),
   blueGrey('blue_grey', '雾蓝', Color(0xFF536D7A)),
-  warmBrown('warm_brown', '暖棕', Color(0xFF766052));
+  warmBrown('warm_brown', '暖棕', Color(0xFF766052)),
+  ocean('ocean', '海蓝', Color(0xFF346C9B)),
+  teal('teal', '青碧', Color(0xFF28756F)),
+  lavender('lavender', '暮紫', Color(0xFF746094)),
+  rose('rose', '玫瑰', Color(0xFFA2536D)),
+  amber('amber', '秋金', Color(0xFF8C692C)),
+  coral('coral', '珊瑚', Color(0xFFAE624D));
 
   const AppAccent(this.key, this.label, this.color);
 

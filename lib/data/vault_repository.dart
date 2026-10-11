@@ -523,7 +523,8 @@ class VaultRepository {
     final reminder = current.reminder;
     final reminderAt = reminder == null
         ? null
-        : reminder.startsAt.isAfter(date)
+        : reminder.startsAt.isAfter(date) &&
+              period.contains(reminder.startsAt, date)
         ? reminder.startsAt
         : DateTime(
             date.year,
@@ -542,6 +543,11 @@ class VaultRepository {
       preserveOriginalDate: true,
       updateReminder: true,
       reminderAt: reminderAt,
+      reminderIntervalMinutes:
+          (reminder?.intervalMinutes ?? 0) <
+              period.end(date).difference(period.start(date)).inMinutes
+          ? (reminder?.intervalMinutes ?? 0)
+          : 0,
       pausePastReminder: true,
     );
   });
@@ -550,8 +556,26 @@ class VaultRepository {
     required GoodDayTask task,
     required EventRepeat repeat,
     required DateTime? reminderAt,
+    int reminderIntervalMinutes = 0,
   }) => _writeOperation(() async {
     final current = await _currentTask(task);
+    if (reminderAt != null &&
+        (reminderAt != current.reminder?.startsAt ||
+            reminderIntervalMinutes !=
+                (current.reminder?.intervalMinutes ?? 0))) {
+      final maxInterval = current.period
+          .end(current.scheduledDate)
+          .difference(current.period.start(current.scheduledDate))
+          .inMinutes;
+      if (!reminderAt.isAfter(_clock()) ||
+          !current.period.contains(reminderAt, current.scheduledDate)) {
+        throw const FormatException('提醒时间必须在当前任务周期内，并晚于现在');
+      }
+      if (reminderIntervalMinutes < 0 ||
+          reminderIntervalMinutes >= maxInterval) {
+        throw const FormatException('重复提醒间隔必须小于任务周期');
+      }
+    }
     return _saveScheduledTask(
       task: current,
       title: current.title,
@@ -560,12 +584,14 @@ class VaultRepository {
       repeat: repeat,
       updateReminder: true,
       reminderAt: reminderAt,
+      reminderIntervalMinutes: reminderIntervalMinutes,
     );
   });
 
   GoodDayEvent? _reminderForDate(GoodDayTask base, DateTime date, String id) {
     final reminder = base.reminder;
     if (reminder == null) return null;
+    final calendarAnchor = reminder.calendarAnchor ?? reminder.startsAt;
     final offset =
         DateTime.utc(
               reminder.startsAt.year,
@@ -580,26 +606,68 @@ class VaultRepository {
               ),
             )
             .inDays;
+    var reminderDate = DateTime(date.year, date.month, date.day + offset);
+    if (reminder.expiresAt != null &&
+        !(offset == 0 && base.period.contains(date, base.scheduledDate))) {
+      reminderDate = switch (base.period) {
+        TaskPeriod.week =>
+          base.period
+              .start(date)
+              .add(Duration(days: calendarAnchor.weekday - 1)),
+        TaskPeriod.month => DateTime(
+          date.year,
+          date.month,
+          calendarAnchor.day.clamp(
+            1,
+            DateTime(date.year, date.month + 1, 0).day,
+          ),
+        ),
+        TaskPeriod.year => DateTime(
+          date.year,
+          calendarAnchor.month,
+          calendarAnchor.day.clamp(
+            1,
+            DateTime(date.year, calendarAnchor.month + 1, 0).day,
+          ),
+        ),
+        _ => reminderDate,
+      };
+    }
     return GoodDayEvent(
       id: 'task_$id',
+      intervalMinutes: reminder.intervalMinutes,
+      expiresAt: reminder.expiresAt == null ? null : base.period.end(date),
+      calendarAnchor: calendarAnchor,
       title: base.title,
       notes: base.notes,
       startsAt: DateTime(
-        date.year,
-        date.month,
-        date.day + offset,
+        reminderDate.year,
+        reminderDate.month,
+        reminderDate.day,
         reminder.startsAt.hour,
         reminder.startsAt.minute,
       ),
     );
   }
 
-  GoodDayTask _configureReminder(GoodDayTask task, DateTime? time) {
+  GoodDayTask _configureReminder(
+    GoodDayTask task,
+    DateTime? time,
+    int interval,
+  ) {
     if (time == null) return task.copyWith(clearReminder: true);
-    if (task.reminder?.startsAt == time) return task;
+    if (task.reminder?.startsAt == time &&
+        task.reminder?.intervalMinutes == interval &&
+        ((interval == 0 && task.reminder?.expiresAt == null) ||
+            task.reminder?.expiresAt == task.period.end(task.scheduledDate))) {
+      return task;
+    }
     return task.copyWith(
       reminder: GoodDayEvent(
         id: 'task_${task.id}',
+        intervalMinutes: interval,
+        expiresAt: task.period.end(task.scheduledDate),
+        calendarAnchor: time,
         title: task.title,
         notes: task.notes,
         startsAt: time,
@@ -676,6 +744,7 @@ class VaultRepository {
     bool pausePastReminder = false,
     bool updateReminder = false,
     DateTime? reminderAt,
+    int reminderIntervalMinutes = 0,
   }) async {
     if (title.trim().isEmpty) throw const FormatException('任务名称不能为空');
     var current = task == null ? null : await _currentTask(task);
@@ -691,7 +760,11 @@ class VaultRepository {
     }
     if (!changed) {
       if (updateReminder) {
-        final updated = _configureReminder(current, reminderAt);
+        final updated = _configureReminder(
+          current,
+          reminderAt,
+          reminderIntervalMinutes,
+        );
         await _writeReminderOptions(current, updated);
         return updated;
       }
@@ -752,7 +825,7 @@ class VaultRepository {
       clearSeries: seriesId == null,
     );
     if (updateReminder) {
-      saved = _configureReminder(saved, reminderAt);
+      saved = _configureReminder(saved, reminderAt, reminderIntervalMinutes);
     }
     if (saved.reminder != null && !isSameDay(normalized, first)) {
       saved = saved.copyWith(

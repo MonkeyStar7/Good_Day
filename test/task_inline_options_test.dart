@@ -31,7 +31,7 @@ void main() {
                     scheduledDate: now,
                   ),
                   clock: () => now,
-                  onSave: (_, _) async {},
+                  onSave: (_, _, _) async {},
                   onEditingChanged: (_) {},
                 ),
               ),
@@ -59,10 +59,9 @@ void main() {
               matching: find.byType(CupertinoPicker),
             ),
           );
-      expect(picker('年', 201).scrollController!.selectedItem, 26);
-      expect(picker('分', 60).scrollController!.selectedItem, 23);
+      expect(picker('分钟后', 60).scrollController!.selectedItem, 5);
       final position = tester.getCenter(
-        find.byKey(const ValueKey('wheel-分-60')),
+        find.byKey(const ValueKey('wheel-分钟后-60')),
       );
       final before = outer.offset;
       await tester.sendEventToBinding(
@@ -72,7 +71,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(picker('分', 60).scrollController!.selectedItem, 24);
+      expect(picker('分钟后', 60).scrollController!.selectedItem, 6);
       expect(outer.offset, before);
       await tester.sendEventToBinding(
         PointerScrollEvent(
@@ -81,17 +80,14 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(picker('分', 60).scrollController!.selectedItem, 23);
+      expect(picker('分钟后', 60).scrollController!.selectedItem, 5);
       await tester.tap(find.byKey(const Key('custom-reminder-clock')));
       await tester.pumpAndSettle();
-      now = DateTime(2027, 1, 2, 13, 42);
+      now = DateTime(2026, 10, 12, 13, 42);
       await tester.tap(find.byKey(const Key('custom-reminder-clock')));
       await tester.pumpAndSettle();
-      expect(picker('年', 201).scrollController!.selectedItem, 27);
-      expect(picker('月', 12).scrollController!.selectedItem, 0);
-      expect(picker('日', 31).scrollController!.selectedItem, 1);
-      expect(picker('时', 24).scrollController!.selectedItem, 13);
-      expect(picker('分', 60).scrollController!.selectedItem, 42);
+      expect(picker('小时后', 24).scrollController!.selectedItem, 0);
+      expect(picker('分钟后', 60).scrollController!.selectedItem, 5);
       expect(tester.takeException(), isNull);
     },
   );
@@ -99,7 +95,7 @@ void main() {
     testWidgets('inline choices, quick reminder and wheel retry at $width', (
       tester,
     ) async {
-      var now = DateTime(2026, 10, 11, 23, 58);
+      var now = DateTime(2026, 10, 12, 9);
       var fail = false;
       var editing = false;
       var task = GoodDayTask(
@@ -122,7 +118,7 @@ void main() {
                     task: task,
                     clock: () => now,
                     onEditingChanged: (value) => editing = value,
-                    onSave: (repeat, time) async {
+                    onSave: (repeat, time, interval) async {
                       if (fail) throw const FileSystemException('磁盘不可写');
                       savedRepeat = repeat;
                       savedTime = time;
@@ -149,14 +145,23 @@ void main() {
       now = now.add(const Duration(minutes: 1));
       await tester.tap(find.byKey(const Key('remind-after-one-5')));
       await tester.pumpAndSettle();
-      expect(savedTime, DateTime(2026, 10, 12, 0, 4));
+      expect(savedTime, DateTime(2026, 10, 12, 9, 6));
       expect(editing, isFalse);
       await tester.tap(find.byKey(const Key('task-reminder-settings-one')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('custom-reminder-one')));
       await tester.pumpAndSettle();
-      expect(find.byType(CupertinoPicker), findsNWidgets(5));
+      expect(find.byType(CupertinoPicker), findsNWidgets(2));
       expect(find.byType(TimePickerDialog), findsNothing);
+      tester
+          .widget<CupertinoPicker>(
+            find.descendant(
+              of: find.byKey(const ValueKey('wheel-分钟后-60')),
+              matching: find.byType(CupertinoPicker),
+            ),
+          )
+          .onSelectedItemChanged!(0);
+      await tester.pumpAndSettle();
       await tester.ensureVisible(
         find.byKey(const Key('save-task-options-one')),
       );
@@ -164,11 +169,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('请选择未来'), findsOneWidget);
       // Change the date through the actual picker, retaining all other wheels.
-      final day = find.byKey(const ValueKey('wheel-日-31'));
+      final day = find.byKey(const ValueKey('wheel-分钟后-60'));
       final picker = tester.widget<CupertinoPicker>(
         find.descendant(of: day, matching: find.byType(CupertinoPicker)),
       );
-      picker.onSelectedItemChanged!(11);
+      picker.onSelectedItemChanged!(15);
       await tester.pumpAndSettle();
       fail = true;
       await tester.tap(find.byKey(const Key('save-task-options-one')));
@@ -178,7 +183,7 @@ void main() {
       fail = false;
       await tester.tap(find.byKey(const Key('save-task-options-one')));
       await tester.pumpAndSettle();
-      expect(savedTime, DateTime(2026, 10, 12, 23, 59));
+      expect(savedTime, DateTime(2026, 10, 12, 9, 16));
       expect(editing, isFalse);
       expect(find.byType(CupertinoPicker), findsNothing);
       expect(tester.takeException(), isNull);
@@ -197,6 +202,9 @@ void main() {
                 width: 210,
                 child: InlineReminderWheels(
                   value: date,
+                  period: TaskPeriod.year,
+                  anchor: DateTime(2028),
+                  now: DateTime(2028),
                   enabled: true,
                   onChanged: (value) => setState(() => date = value),
                 ),
@@ -215,9 +223,7 @@ void main() {
       picker('月', 12).onSelectedItemChanged!(1);
       await tester.pumpAndSettle();
       expect(date, DateTime(2028, 2, 29, 10, 40));
-      picker('年', 201).onSelectedItemChanged!(27);
-      await tester.pumpAndSettle();
-      expect(date, DateTime(2027, 2, 28, 10, 40));
+      expect(find.byKey(const ValueKey('wheel-年-201')), findsNothing);
       picker('分', 60).scrollController!.jumpToItem(45);
       await tester.pumpAndSettle();
       expect(date.minute, 45);
@@ -234,14 +240,14 @@ void main() {
               ),
               clock: () => date,
               onEditingChanged: (_) {},
-              onSave: (_, _) => gate.future,
+              onSave: (_, _, _) => gate.future,
             ),
           ),
         ),
       );
       await tester.tap(find.byKey(const Key('task-reminder-settings-save')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('remind-after-save-15')));
+      await tester.tap(find.byKey(const Key('remind-after-save-5')));
       await tester.pump();
       await tester.pumpWidget(const SizedBox.shrink());
       gate.complete();

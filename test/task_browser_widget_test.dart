@@ -91,6 +91,7 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(find.text('昨天读书'), findsOneWidget);
+        expect(find.text('日待办 · 完成于 2026-10-11'), findsOneWidget);
         expect(find.text('明天开会'), findsNothing);
         expect(find.byKey(const Key('task-filter-tomorrow')), findsNothing);
         expect(find.byKey(const Key('task-filter-all')), findsNothing);

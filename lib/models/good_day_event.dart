@@ -11,6 +11,9 @@ class GoodDayEvent {
     this.notes = '',
     this.repeat = EventRepeat.once,
     this.reminderMinutes = 0,
+    this.intervalMinutes = 0,
+    this.expiresAt,
+    this.calendarAnchor,
     this.enabled = true,
     this.handledThrough,
     this.pendingOccurrence,
@@ -22,6 +25,9 @@ class GoodDayEvent {
   final DateTime startsAt;
   final EventRepeat repeat;
   final int reminderMinutes;
+  final int intervalMinutes;
+  final DateTime? expiresAt;
+  final DateTime? calendarAnchor;
   final bool enabled;
   final DateTime? handledThrough, pendingOccurrence, snoozedUntil, deletedAt;
 
@@ -32,11 +38,17 @@ class GoodDayEvent {
     required EventRepeat repeat,
     required int reminderMinutes,
     required bool enabled,
+    int? intervalMinutes,
+    DateTime? expiresAt,
   }) {
+    final nextInterval = intervalMinutes ?? this.intervalMinutes;
+    final nextExpiry = expiresAt ?? this.expiresAt;
     final rescheduled =
         startsAt != this.startsAt ||
         repeat != this.repeat ||
-        reminderMinutes != this.reminderMinutes;
+        reminderMinutes != this.reminderMinutes ||
+        nextInterval != this.intervalMinutes ||
+        nextExpiry != this.expiresAt;
     return GoodDayEvent(
       id: id,
       title: title.trim(),
@@ -44,6 +56,9 @@ class GoodDayEvent {
       startsAt: startsAt,
       repeat: repeat,
       reminderMinutes: reminderMinutes,
+      intervalMinutes: nextInterval,
+      expiresAt: nextExpiry,
+      calendarAnchor: calendarAnchor,
       enabled: enabled,
       handledThrough: rescheduled ? null : handledThrough,
       pendingOccurrence: rescheduled || !enabled ? null : pendingOccurrence,
@@ -59,6 +74,9 @@ class GoodDayEvent {
     startsAt: startsAt,
     repeat: repeat,
     reminderMinutes: reminderMinutes,
+    intervalMinutes: intervalMinutes,
+    expiresAt: expiresAt,
+    calendarAnchor: calendarAnchor,
     enabled: enabled,
     handledThrough: handledThrough,
     pendingOccurrence: occurrence,
@@ -74,7 +92,17 @@ class GoodDayEvent {
         startsAt: startsAt,
         repeat: repeat,
         reminderMinutes: reminderMinutes,
-        enabled: snoozeUntil != null || repeat != EventRepeat.once,
+        intervalMinutes: intervalMinutes,
+        expiresAt: expiresAt,
+        calendarAnchor: calendarAnchor,
+        enabled:
+            (snoozeUntil != null ||
+                repeat != EventRepeat.once ||
+                intervalMinutes > 0) &&
+            (expiresAt == null ||
+                (snoozeUntil ??
+                        occurrence.add(Duration(minutes: intervalMinutes)))
+                    .isBefore(expiresAt!)),
         handledThrough: snoozeUntil == null ? occurrence : handledThrough,
         pendingOccurrence: snoozeUntil == null ? null : occurrence,
         snoozedUntil: snoozeUntil,
@@ -88,6 +116,9 @@ class GoodDayEvent {
     startsAt: startsAt,
     repeat: repeat,
     reminderMinutes: reminderMinutes,
+    intervalMinutes: intervalMinutes,
+    expiresAt: expiresAt,
+    calendarAnchor: calendarAnchor,
     enabled: false,
     handledThrough: handledThrough,
     deletedAt: now,
@@ -102,17 +133,55 @@ class GoodDayEvent {
     startsAt: startsAt,
     repeat: repeat,
     reminderMinutes: reminderMinutes,
+    intervalMinutes: intervalMinutes,
+    expiresAt: expiresAt,
+    calendarAnchor: calendarAnchor,
     enabled: false,
     handledThrough: handledThrough,
   );
 
-  DateTime? latestOccurrenceAtOrBefore(DateTime limit) =>
-      RepeatSchedule(startsAt, repeat).latestOccurrenceAtOrBefore(limit);
-  DateTime? nextOccurrenceAfter(DateTime boundary) =>
-      RepeatSchedule(startsAt, repeat).nextOccurrenceAfter(boundary);
+  DateTime? latestOccurrenceAtOrBefore(DateTime limit) {
+    if (intervalMinutes == 0) {
+      return RepeatSchedule(startsAt, repeat).latestOccurrenceAtOrBefore(limit);
+    }
+    if (limit.isBefore(startsAt)) return null;
+    final capped = expiresAt != null && !limit.isBefore(expiresAt!)
+        ? expiresAt!.subtract(const Duration(microseconds: 1))
+        : limit;
+    if (capped.isBefore(startsAt)) return null;
+    return startsAt.add(
+      Duration(
+        minutes:
+            (capped.difference(startsAt).inMinutes ~/ intervalMinutes) *
+            intervalMinutes,
+      ),
+    );
+  }
+
+  DateTime? nextOccurrenceAfter(DateTime boundary) {
+    final next = intervalMinutes == 0
+        ? RepeatSchedule(startsAt, repeat).nextOccurrenceAfter(boundary)
+        : boundary.isBefore(startsAt)
+        ? startsAt
+        : startsAt.add(
+            Duration(
+              minutes:
+                  (boundary.difference(startsAt).inMinutes ~/ intervalMinutes +
+                      1) *
+                  intervalMinutes,
+            ),
+          );
+    return next != null && (expiresAt == null || next.isBefore(expiresAt!))
+        ? next
+        : null;
+  }
 
   DateTime? dueOccurrence(DateTime now) {
-    if (!enabled || deletedAt != null) return null;
+    if (!enabled ||
+        deletedAt != null ||
+        (expiresAt != null && !now.isBefore(expiresAt!))) {
+      return null;
+    }
     if (snoozedUntil != null && pendingOccurrence != null) {
       return now.isBefore(snoozedUntil!) ? null : pendingOccurrence;
     }
@@ -128,7 +197,11 @@ class GoodDayEvent {
   }
 
   DateTime? nextReminderAt(DateTime now) {
-    if (!enabled || deletedAt != null) return null;
+    if (!enabled ||
+        deletedAt != null ||
+        (expiresAt != null && !now.isBefore(expiresAt!))) {
+      return null;
+    }
     if (snoozedUntil != null) return snoozedUntil;
     final due = dueOccurrence(now);
     if (due != null) return due.subtract(Duration(minutes: reminderMinutes));
@@ -141,7 +214,7 @@ class GoodDayEvent {
   }
 
   String toMarkdown() =>
-      '---\ngoodday-event: ${jsonEncode({'id': id, 'title': title, 'notes': notes, 'startsAt': startsAt.toIso8601String(), 'repeat': repeat.name, 'reminderMinutes': reminderMinutes, 'enabled': enabled, 'handledThrough': handledThrough?.toIso8601String(), 'pendingOccurrence': pendingOccurrence?.toIso8601String(), 'snoozedUntil': snoozedUntil?.toIso8601String(), 'deletedAt': deletedAt?.toIso8601String()})}\n---\n\n# ${title.replaceAll(RegExp(r'[\r\n]+'), ' ')}\n\n$notes\n';
+      '---\ngoodday-event: ${jsonEncode({'id': id, 'title': title, 'notes': notes, 'startsAt': startsAt.toIso8601String(), 'repeat': repeat.name, 'reminderMinutes': reminderMinutes, 'intervalMinutes': intervalMinutes, 'expiresAt': expiresAt?.toIso8601String(), 'calendarAnchor': calendarAnchor?.toIso8601String(), 'enabled': enabled, 'handledThrough': handledThrough?.toIso8601String(), 'pendingOccurrence': pendingOccurrence?.toIso8601String(), 'snoozedUntil': snoozedUntil?.toIso8601String(), 'deletedAt': deletedAt?.toIso8601String()})}\n---\n\n# ${title.replaceAll(RegExp(r'[\r\n]+'), ' ')}\n\n$notes\n';
 
   factory GoodDayEvent.fromMarkdown(String source) {
     try {
@@ -167,6 +240,16 @@ class GoodDayEvent {
           minutes > 10080) {
         throw const FormatException('事件内容无效');
       }
+      final interval = (json['intervalMinutes'] ?? 0) as int;
+      final expiry = optionalDate('expiresAt');
+      if (interval < 0 ||
+          interval >= 527040 ||
+          (interval > 0 &&
+              (expiry == null ||
+                  !expiry.isAfter(DateTime.parse(json['startsAt'] as String)) ||
+                  json['repeat'] != 'once'))) {
+        throw const FormatException('重复提醒设置无效');
+      }
       final pending = optionalDate('pendingOccurrence');
       final snoozed = optionalDate('snoozedUntil');
       if (snoozed != null && pending == null) {
@@ -179,6 +262,9 @@ class GoodDayEvent {
         startsAt: DateTime.parse(json['startsAt'] as String).toLocal(),
         repeat: EventRepeat.values.byName(json['repeat'] as String),
         reminderMinutes: minutes,
+        intervalMinutes: interval,
+        expiresAt: expiry,
+        calendarAnchor: optionalDate('calendarAnchor'),
         enabled: json['enabled'] as bool,
         handledThrough: optionalDate('handledThrough'),
         pendingOccurrence: pending,

@@ -64,9 +64,10 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byType(ChoiceChip), findsNothing);
+      expect(find.byKey(const Key('period-navigation-line')), findsOneWidget);
       expect(find.byKey(const Key('task-section-进行中')), findsNothing);
       expect(find.byKey(const Key('task-section-已完成')), findsNothing);
-      expect(find.text('添加待办任务'), findsOneWidget);
+      expect(find.text('添加今日待办任务'), findsOneWidget);
       expect(
         find.text('待办'),
         findsOneWidget,
@@ -83,6 +84,13 @@ void main() {
       );
       await tester.tap(find.byKey(const Key('task-period-week')));
       await tester.pumpAndSettle();
+      final dayEdge = tester
+          .getRect(find.byKey(const Key('task-period-day')))
+          .bottom;
+      final weekEdge = tester
+          .getRect(find.byKey(const Key('task-period-week')))
+          .bottom;
+      expect(dayEdge, closeTo(weekEdge, 0.1));
       expect(
         period('week').style!.fontSize,
         greaterThan(period('day').style!.fontSize!),
@@ -197,6 +205,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('本周一整本'), findsOneWidget);
       expect(find.text('今日三套卷子'), findsOneWidget);
+      expect(find.byKey(Key('task-period-label-${daily.id}')), findsOneWidget);
+      expect(find.byKey(Key('task-period-label-${weekly.id}')), findsNothing);
       await tester.tap(find.byKey(Key('task-checkbox-${weekly.id}')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('task-period-month')));
@@ -316,6 +326,19 @@ void main() {
         deadline: DateTime.now().add(const Duration(days: 12)),
       );
       await repository.deleteTask(await repository.addTask('整理本周错题'));
+      final previewPeriodTasks = <TaskPeriod, GoodDayTask>{};
+      if (capture) {
+        for (final period in [
+          TaskPeriod.week,
+          TaskPeriod.month,
+          TaskPeriod.year,
+        ]) {
+          previewPeriodTasks[period] = await repository.addPeriodTask(
+            '${period.label}刷题计划',
+            period,
+          );
+        }
+      }
       final boundaryKey = GlobalKey();
       final previewSettings = AppSettingsController.inMemory();
       await tester.pumpWidget(
@@ -380,6 +403,28 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('取消'));
       await tester.pumpAndSettle();
+      if (capture) {
+        for (final entry in previewPeriodTasks.entries) {
+          await tester.tap(find.byKey(Key('task-period-${entry.key.name}')));
+          await inspect('16-${entry.key.name}-list');
+          await tester.tap(find.byKey(Key('task-content-${entry.value.id}')));
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find.byKey(Key('task-reminder-settings-${entry.value.id}')),
+          );
+          await tester.pumpAndSettle();
+          await tester.ensureVisible(
+            find.byKey(ValueKey('reminder-wheels-${entry.value.id}')),
+          );
+          await inspect('17-${entry.key.name}-reminder');
+          await tester.ensureVisible(find.text('取消'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('取消'));
+          await tester.pumpAndSettle();
+        }
+        await tester.tap(find.byKey(const Key('task-period-day')));
+        await tester.pumpAndSettle();
+      }
       await tester.tap(find.byKey(const Key('nav-plans')));
       await inspect('02-plans');
       await tester.tap(find.byKey(Key('edit-plan-${plan.id}')));
@@ -1221,6 +1266,7 @@ class _MemoryRepository extends VaultRepository {
     required GoodDayTask task,
     required EventRepeat repeat,
     required DateTime? reminderAt,
+    int reminderIntervalMinutes = 0,
   }) async => _replace(
     task.copyWith(
       repeat: repeat,
@@ -1232,6 +1278,8 @@ class _MemoryRepository extends VaultRepository {
               title: task.title,
               notes: task.notes,
               startsAt: reminderAt,
+              intervalMinutes: reminderIntervalMinutes,
+              expiresAt: task.period.end(task.scheduledDate),
             ),
     ),
   );
