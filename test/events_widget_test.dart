@@ -205,9 +205,16 @@ void main() {
   }
 
   testWidgets(
-    'home creates events, protects open drafts, and preserves task navigation',
+    'legacy events remain editable in settings and protect open drafts',
     (tester) async {
       final store = _EventRepository();
+      store.events.add(
+        GoodDayEvent(
+          id: 'existing',
+          title: '旧提醒',
+          startsAt: DateTime(2026, 10, 12, 10),
+        ),
+      );
       final desktop = _Desktop();
       await tester.pumpWidget(
         GoodDayApp(
@@ -217,9 +224,12 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('nav-events')));
+      expect(find.byKey(const Key('nav-events')), findsNothing);
+      await tester.tap(find.byKey(const Key('settings-button')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('add-event')));
+      await tester.tap(find.byKey(const Key('legacy-reminders-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('edit-event-existing')));
       await tester.pumpAndSettle();
       await tester.enterText(find.byKey(const Key('event-title')), '下午开会');
       expect(await desktop.guard!(), isFalse);
@@ -228,7 +238,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(store.events.single.title, '下午开会');
       expect(find.text('下午开会'), findsOneWidget);
-      await tester.tap(find.byKey(const Key('nav-today')));
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.arrow_back));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('add-task-button')), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
@@ -343,7 +355,9 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('nav-events')));
+      await tester.tap(find.byKey(const Key('settings-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('legacy-reminders-button')));
       await tester.pumpAndSettle();
       Future<void> inspect(String name) async {
         expect(tester.takeException(), isNull);
@@ -420,6 +434,8 @@ class _EventRepository extends VaultRepository {
   final List<GoodDayEvent> events = [];
   @override
   Future<List<GoodDayTask>> loadTasks() async => [];
+  @override
+  Future<List<GoodDayTask>> loadTaskReminders() async => [];
   @override
   Future<List<GoodDayGoal>> loadGoals() async => [];
   @override

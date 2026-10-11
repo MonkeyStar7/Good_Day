@@ -1,4 +1,6 @@
-import 'repeat_schedule.dart';
+import 'dart:convert';
+
+import 'good_day_event.dart';
 
 class GoodDaySubtask {
   const GoodDaySubtask({
@@ -37,6 +39,7 @@ class GoodDayTask {
     this.repeatAnchor,
     this.occurrenceDate,
     this.originalDate,
+    this.reminder,
   });
 
   final String id;
@@ -52,6 +55,17 @@ class GoodDayTask {
   final EventRepeat repeat;
   final String? seriesId;
   final DateTime? repeatAnchor, occurrenceDate, originalDate;
+  final GoodDayEvent? reminder;
+  GoodDayEvent? get activeReminder => isCompleted || deletedAt != null
+      ? null
+      : reminder?.edit(
+          title: title,
+          notes: notes,
+          startsAt: reminder!.startsAt,
+          repeat: EventRepeat.once,
+          reminderMinutes: 0,
+          enabled: reminder!.enabled,
+        );
   DateTime get originalScheduledDate => originalDate ?? scheduledDate;
 
   GoodDayTask copyWith({
@@ -72,6 +86,8 @@ class GoodDayTask {
     DateTime? occurrenceDate,
     DateTime? originalDate,
     bool clearSeries = false,
+    GoodDayEvent? reminder,
+    bool clearReminder = false,
   }) => GoodDayTask(
     id: id,
     title: title ?? this.title,
@@ -88,6 +104,7 @@ class GoodDayTask {
     repeatAnchor: clearSeries ? null : repeatAnchor ?? this.repeatAnchor,
     occurrenceDate: clearSeries ? null : occurrenceDate ?? this.occurrenceDate,
     originalDate: originalDate ?? originalScheduledDate,
+    reminder: clearReminder ? null : reminder ?? this.reminder,
   );
 
   GoodDayTask setCompleted(bool completed, DateTime now) => copyWith(
@@ -97,7 +114,17 @@ class GoodDayTask {
   );
   GoodDayTask rollForward(DateTime date) => copyWith(scheduledDate: date);
   GoodDayTask markDeleted(DateTime now) => copyWith(deletedAt: now);
-  GoodDayTask restore() => copyWith(clearDeletedAt: true);
+  GoodDayTask restore() => copyWith(
+    clearDeletedAt: true,
+    reminder: reminder?.edit(
+      title: title,
+      notes: notes,
+      startsAt: reminder!.startsAt,
+      repeat: EventRepeat.once,
+      reminderMinutes: 0,
+      enabled: false,
+    ),
+  );
   GoodDayTask updateDetails({required String title, required String notes}) =>
       copyWith(title: title.trim(), notes: _singleLine(notes));
   GoodDayTask assignGoal(String? nextGoalId) =>
@@ -150,6 +177,9 @@ class GoodDayTask {
       ..writeln('completed: ${completedAt?.toIso8601String() ?? ''}')
       ..writeln('deleted: ${deletedAt?.toIso8601String() ?? ''}')
       ..writeln('goal: ${goalId ?? ''}')
+      ..writeln(
+        'reminder: ${reminder == null ? '' : jsonEncode(reminder!.toMarkdown())}',
+      )
       ..writeln('---')
       ..writeln()
       ..writeln('# $safeTitle');
@@ -251,6 +281,17 @@ class GoodDayTask {
     }
 
     final goal = values['goal']?.trim();
+    GoodDayEvent? reminder;
+    if ((values['reminder'] ?? '').isNotEmpty) {
+      final encoded = jsonDecode(values['reminder']!);
+      if (encoded is! String) {
+        throw const FormatException('Invalid task reminder.');
+      }
+      reminder = GoodDayEvent.fromMarkdown(encoded);
+      if (reminder.repeat != EventRepeat.once || reminder.id != 'task_$id') {
+        throw const FormatException('Invalid task reminder identity.');
+      }
+    }
     if (values['recurrence'] != null &&
         !EventRepeat.values.any(
           (repeat) => repeat.name == values['recurrence'],
@@ -276,6 +317,7 @@ class GoodDayTask {
       occurrenceDate: DateTime.tryParse(values['occurrence'] ?? ''),
       originalDate:
           DateTime.tryParse(values['original_scheduled'] ?? '') ?? scheduled,
+      reminder: reminder,
     );
   }
 

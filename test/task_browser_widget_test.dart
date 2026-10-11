@@ -73,7 +73,7 @@ void main() {
       },
     );
     testWidgets(
-      'task browser filters history, searches and completes future task at $width',
+      'history has two status filters, searches and moves completed tasks at $width',
       (tester) async {
         tester.view.devicePixelRatio = 1;
         tester.view.physicalSize = Size(width, 720);
@@ -90,12 +90,10 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(find.text('明天开会'), findsOneWidget);
-        expect(find.text('昨天读书'), findsNothing);
-        await tester.tap(find.byKey(const Key('task-filter-history')));
-        await tester.pumpAndSettle();
         expect(find.text('昨天读书'), findsOneWidget);
         expect(find.text('明天开会'), findsNothing);
+        expect(find.byKey(const Key('task-filter-tomorrow')), findsNothing);
+        expect(find.byKey(const Key('task-filter-all')), findsNothing);
         await tester.enterText(find.byKey(const Key('task-search')), '不存在');
         await tester.pumpAndSettle();
         expect(find.text('这个范围没有任务'), findsOneWidget);
@@ -103,13 +101,13 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('昨天读书'), findsOneWidget);
         await tester.enterText(find.byKey(const Key('task-search')), '');
-        await tester.tap(find.byKey(const Key('task-filter-tomorrow')));
+        await tester.tap(find.byKey(const Key('task-filter-uncompleted')));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('browse-complete-next')));
         await tester.pumpAndSettle();
         expect(repository.tasks.last.isCompleted, isTrue);
         expect(find.text('明天开会'), findsNothing);
-        await tester.tap(find.byKey(const Key('task-filter-history')));
+        await tester.tap(find.byKey(const Key('task-filter-completed')));
         await tester.pumpAndSettle();
         expect(find.text('明天开会'), findsOneWidget);
         expect(tester.takeException(), isNull);

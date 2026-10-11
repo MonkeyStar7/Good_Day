@@ -6,16 +6,15 @@ import 'data/vault_repository.dart';
 import 'models/good_day_task.dart';
 import 'models/repeat_schedule.dart';
 import 'models/task_series.dart';
+import 'models/good_day_goal.dart';
+import 'task_options_dialog.dart';
 
-enum TaskView { today, tomorrow, upcoming, history, all }
+enum TaskView { completed, uncompleted }
 
 extension TaskViewLabel on TaskView {
   String get label => switch (this) {
-    TaskView.today => '今天',
-    TaskView.tomorrow => '明天',
-    TaskView.upcoming => '未来',
-    TaskView.history => '历史',
-    TaskView.all => '全部',
+    TaskView.completed => '已完成',
+    TaskView.uncompleted => '未完成',
   };
 }
 
@@ -25,14 +24,16 @@ class TaskBrowserPage extends StatefulWidget {
     required this.repository,
     required this.clock,
     required this.onEditingChanged,
-    this.initialView = TaskView.tomorrow,
+    this.initialView = TaskView.completed,
     this.embedded = false,
+    this.goals = const [],
   });
   final VaultRepository repository;
   final DateTime Function() clock;
   final void Function(bool editing) onEditingChanged;
   final TaskView initialView;
   final bool embedded;
+  final List<GoodDayGoal> goals;
   @override
   State<TaskBrowserPage> createState() => _TaskBrowserPageState();
 }
@@ -43,7 +44,6 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
   List<TaskSeries> _series = [];
   late TaskView _view;
   String _query = '';
-  DateTime? _date;
   bool _busy = true;
   String? _error;
   Timer? _refreshTimer;
@@ -123,7 +123,7 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
     }
   }
 
-  Future<void> _edit(GoodDayTask? task) async {
+  Future<void> _edit(GoodDayTask task) async {
     if (_busy) return;
     _editing = true;
     widget.onEditingChanged(true);
@@ -131,16 +131,14 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
       await showDialog<void>(
         context: context,
         barrierDismissible: false,
-        builder: (_) => TaskScheduleDialog(
+        builder: (_) => TaskOptionsDialog(
           task: task,
           now: widget.clock(),
-          onSave: (title, notes, date, repeat) async {
-            await widget.repository.saveScheduledTask(
+          onSave: (repeat, reminderAt) async {
+            await widget.repository.saveTaskOptions(
               task: task,
-              title: title,
-              notes: notes,
-              date: date,
               repeat: repeat,
+              reminderAt: reminderAt,
             );
           },
         ),
@@ -149,21 +147,6 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
     } finally {
       _editing = false;
       widget.onEditingChanged(false);
-    }
-  }
-
-  Future<void> _pickDate() async {
-    final selected = await showDatePicker(
-      context: context,
-      initialDate: _date ?? widget.clock(),
-      firstDate: DateTime(1900),
-      lastDate: DateTime(2200),
-    );
-    if (selected != null && mounted) {
-      setState(() {
-        _date = selected;
-        _view = TaskView.all;
-      });
     }
   }
 
@@ -212,28 +195,10 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
   }
 
   List<GoodDayTask> get _visible {
-    final now = widget.clock();
-    final today = DateTime(now.year, now.month, now.day);
-    final tomorrow = DateTime(now.year, now.month, now.day + 1);
     final tasks = _tasks.where((task) {
-      final recordDate =
-          task.completedAt ?? task.occurrenceDate ?? task.originalScheduledDate;
-      if (_date != null &&
-          !isSameDay(recordDate, _date!) &&
-          !isSameDay(task.scheduledDate, _date!)) {
-        return false;
-      }
       final match = switch (_view) {
-        TaskView.today =>
-          isSameDay(task.scheduledDate, today) ||
-              (task.completedAt != null && isSameDay(task.completedAt!, today)),
-        TaskView.tomorrow =>
-          !task.isCompleted && isSameDay(task.scheduledDate, tomorrow),
-        TaskView.upcoming =>
-          !task.isCompleted && task.scheduledDate.isAfter(today),
-        TaskView.history =>
-          task.isCompleted || task.scheduledDate.isBefore(today),
-        TaskView.all => true,
+        TaskView.completed => task.isCompleted,
+        TaskView.uncompleted => !task.isCompleted,
       };
       return match &&
           '${task.title} ${task.notes} ${task.subtasks.map((step) => step.title).join(' ')}'
@@ -241,7 +206,7 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
               .contains(_query.toLowerCase());
     }).toList();
     tasks.sort((a, b) {
-      if (_view == TaskView.history) {
+      if (_view == TaskView.completed) {
         return (b.completedAt ?? b.scheduledDate).compareTo(
           a.completedAt ?? a.scheduledDate,
         );
@@ -260,7 +225,7 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
       appBar: widget.embedded
           ? null
           : AppBar(
-              title: const Text('任务日期与历史'),
+              title: const Text('待办历史'),
               backgroundColor: const Color(0xFFF5F5F0),
             ),
       body: Column(
@@ -286,7 +251,7 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
                         labelPadding: const EdgeInsets.symmetric(horizontal: 6),
                         labelStyle: TextStyle(
                           fontSize: 12,
-                          color: _view == view && _date == null
+                          color: _view == view
                               ? const Color(0xFF3D604A)
                               : const Color(0xFF626C64),
                         ),
@@ -299,12 +264,11 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(9),
                         ),
-                        selected: _view == view && _date == null,
+                        selected: _view == view,
                         onSelected: _busy
                             ? null
                             : (_) => setState(() {
                                 _view = view;
-                                _date = null;
                               }),
                       ),
                   ],
@@ -340,24 +304,6 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
                   ),
                   onChanged: (query) => setState(() => _query = query),
                 ),
-                Row(
-                  children: [
-                    TextButton.icon(
-                      key: const Key('task-browse-date'),
-                      onPressed: _busy ? null : _pickDate,
-                      icon: const Icon(Icons.calendar_today, size: 16),
-                      label: Text(
-                        _date == null ? '选择日期' : dateKey(_date!),
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ),
-                    if (_date != null)
-                      IconButton(
-                        onPressed: () => setState(() => _date = null),
-                        icon: const Icon(Icons.clear, size: 16),
-                      ),
-                  ],
-                ),
                 if (_error != null)
                   TextButton(onPressed: _load, child: Text('$_error · 点击重试')),
               ],
@@ -388,27 +334,50 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
                             task.title,
                             style: TextStyle(
                               fontSize: 15,
+                              color:
+                                  widget.goals
+                                          .where(
+                                            (goal) => goal.id == task.goalId,
+                                          )
+                                          .firstOrNull ==
+                                      null
+                                  ? const Color(0xFF242C27)
+                                  : Color(
+                                      widget.goals
+                                          .firstWhere(
+                                            (goal) => goal.id == task.goalId,
+                                          )
+                                          .colorValue,
+                                    ),
                               decoration: task.isCompleted
                                   ? TextDecoration.lineThrough
                                   : null,
                             ),
                           ),
-                          subtitle: Text(
-                            task.isCompleted
-                                ? '完成于 ${dateKey(task.completedAt ?? task.scheduledDate)}'
-                                : '安排于 ${dateKey(task.scheduledDate)}${task.repeat == EventRepeat.once ? '' : ' · ${task.repeat.label}'}',
-                            style: const TextStyle(fontSize: 12),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (task.notes.isNotEmpty)
+                                Text(
+                                  task.notes,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    height: 1.5,
+                                  ),
+                                ),
+                              Text(
+                                task.isCompleted
+                                    ? '完成于 ${dateKey(task.completedAt ?? task.scheduledDate)}'
+                                    : '记录于 ${dateKey(task.originalScheduledDate)}${task.repeat == EventRepeat.once ? '' : ' · ${task.repeat.label}'}',
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                            ],
                           ),
                           children: [
                             if (task.originalScheduledDate !=
                                 task.scheduledDate)
                               Text(
                                 '最初安排：${dateKey(task.originalScheduledDate)}',
-                              ),
-                            if (task.notes.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Text(task.notes),
                               ),
                             for (final step in task.subtasks)
                               CheckboxListTile(
@@ -431,7 +400,7 @@ class _TaskBrowserPageState extends State<TaskBrowserPage>
                                 TextButton(
                                   key: Key('browse-edit-${task.id}'),
                                   onPressed: _busy ? null : () => _edit(task),
-                                  child: const Text('编辑 / 日期 / 重复'),
+                                  child: const Text('重复 / 提醒'),
                                 ),
                                 if (_series.any(
                                   (series) =>

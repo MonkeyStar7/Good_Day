@@ -14,6 +14,7 @@ import 'data/safe_file.dart';
 import 'edit_safety.dart';
 import 'events_page.dart';
 import 'task_browser_page.dart';
+import 'task_options_dialog.dart';
 import 'event_reminder_service.dart';
 import 'data/vault_repository.dart';
 import 'desktop_experience.dart';
@@ -39,7 +40,7 @@ const _goalPalette = <Color>[
   Color(0xFF9A8371),
 ];
 
-enum _HomeView { today, plans, goals, events, history }
+enum _HomeView { today, plans, goals, history }
 
 Future<void> main(List<String> arguments) async {
   try {
@@ -452,7 +453,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           !_taskEditorOpen &&
           (ModalRoute.of(context)?.isCurrent ?? true),
       present: _presentReminder,
-      onChanged: _loadEvents,
+      onChanged: _refreshReminderState,
       onError: (error) {
         if (mounted) {
           ScaffoldMessenger.of(
@@ -532,6 +533,66 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _loadEvents() async {
     final events = await _repository.loadEvents();
     if (mounted) setState(() => _events = events);
+  }
+
+  Future<void> _refreshReminderState() async {
+    await _loadEvents();
+    final tasks = await _repository.loadTaskReminders();
+    if (mounted) {
+      setState(() {
+        _tasks = [
+          for (final task in _tasks)
+            tasks.where((current) => current.id == task.id).firstOrNull ?? task,
+        ];
+      });
+    }
+  }
+
+  Future<void> _openLegacyReminders() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (routeContext) => StatefulBuilder(
+          builder: (routeContext, rebuild) {
+            Future<void> refresh(Future<void> action) async {
+              await action;
+              if (routeContext.mounted) rebuild(() {});
+            }
+
+            return Scaffold(
+              backgroundColor: _paper,
+              body: Column(
+                children: [
+                  _WindowBar(
+                    title: '已有独立提醒',
+                    onBack: () => Navigator.pop(routeContext),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      '这里保留旧版创建的独立提醒。新的提醒可以直接在待办中设置。',
+                      style: TextStyle(color: _muted, fontSize: 12),
+                    ),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: EventsArea(
+                        events: _events,
+                        now: _now(),
+                        onEdit: (event) => refresh(_editEvent(event)),
+                        onToggle: (event, enabled) =>
+                            refresh(_toggleEvent(event, enabled)),
+                        onDelete: (event) => refresh(_deleteEvent(event)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _presentReminder(
@@ -966,7 +1027,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               _expandedPlanId = _expandedPlanId == id ? null : id;
             case _HomeView.goals:
               _expandedGoalId = _expandedGoalId == id ? null : id;
-            case _HomeView.events:
             case _HomeView.history:
               break;
           }
@@ -1083,6 +1143,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               widget.desktopExperience?.isLaunchAtStartupEnabled,
           onLaunchAtStartupChanged:
               widget.desktopExperience?.setLaunchAtStartupEnabled,
+          onOpenLegacyReminders: _events.isEmpty ? null : _openLegacyReminders,
         ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return FadeTransition(opacity: animation, child: child);
@@ -1143,9 +1204,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                   total: _tasks.length,
                                   planCount: _plans.length,
                                   goalCount: _goals.length,
-                                  eventCount: _events
-                                      .where((event) => event.enabled)
-                                      .length,
                                 ),
                                 const SizedBox(height: 24),
                                 if (_repository.unreadableFiles.isNotEmpty)
@@ -1200,37 +1258,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         key: ValueKey(_repository.vaultDirectory.path),
         repository: _repository,
         clock: _now,
-        initialView: TaskView.history,
+        initialView: TaskView.completed,
+        goals: _goals,
         embedded: true,
         onEditingChanged: (editing) => _taskEditorOpen = editing,
-      ),
-      _HomeView.events => EventsArea(
-        events: _events,
-        now: _now(),
-        onEdit: _editEvent,
-        onToggle: _toggleEvent,
-        onDelete: _deleteEvent,
       ),
     };
   }
 
-  Future<void> _editTaskSchedule(GoodDayTask? task) async {
+  Future<void> _editTaskSchedule(GoodDayTask task) async {
     if (!await _saveBeforeLeave() || !mounted) return;
     _taskEditorOpen = true;
     try {
       await showDialog<void>(
         context: context,
         barrierDismissible: false,
-        builder: (_) => TaskScheduleDialog(
-          task: task,
+        builder: (_) => TaskOptionsDialog(
+          task: _taskById(task.id),
           now: _now(),
-          onSave: (title, notes, date, repeat) async {
-            await _repository.saveScheduledTask(
+          onSave: (repeat, reminderAt) async {
+            await _repository.saveTaskOptions(
               task: task,
-              title: title,
-              notes: notes,
-              date: date,
               repeat: repeat,
+              reminderAt: reminderAt,
             );
           },
         ),
@@ -1564,14 +1614,12 @@ class _NoteNavigation extends StatelessWidget {
     Color(0xFFE2EBDD),
     Color(0xFFF2E9CB),
     Color(0xFFE7E1F0),
-    Color(0xFFDDE9EF),
     Color(0xFFF0DFD5),
   ];
   static const _icons = [
-    Icons.wb_sunny_outlined,
+    Icons.checklist_outlined,
     Icons.event_note_outlined,
     Icons.flag_outlined,
-    Icons.notifications_none,
     Icons.history,
   ];
   @override
@@ -1674,16 +1722,14 @@ class _ModeHeader extends StatelessWidget {
     required this.total,
     required this.planCount,
     required this.goalCount,
-    required this.eventCount,
   });
   final _HomeView mode;
   final DateTime date;
-  final int completed, total, planCount, goalCount, eventCount;
+  final int completed, total, planCount, goalCount;
   static String label(_HomeView view) => switch (view) {
-    _HomeView.today => '今日',
+    _HomeView.today => '待办',
     _HomeView.plans => '计划',
     _HomeView.goals => '目标',
-    _HomeView.events => '事件',
     _HomeView.history => '历史',
   };
   @override
@@ -1693,7 +1739,6 @@ class _ModeHeader extends StatelessWidget {
       _HomeView.today => '$completed / $total 完成',
       _HomeView.plans => '$planCount 项计划',
       _HomeView.goals => '$goalCount 个目标',
-      _HomeView.events => '$eventCount 项提醒已开启',
       _HomeView.history => '记录与回顾',
     };
     return Column(
@@ -1723,8 +1768,7 @@ class _ModeHeader extends StatelessWidget {
               : switch (mode) {
                   _HomeView.plans => '给下一步留一个位置',
                   _HomeView.goals => '让每天的行动有方向',
-                  _HomeView.events => '重要的事，准时想起',
-                  _HomeView.history => '按日期查看，找回做过的事',
+                  _HomeView.history => '查看已完成与未完成的记录',
                   _HomeView.today => '',
                 },
           style: const TextStyle(color: _muted, fontSize: 12),
@@ -3391,6 +3435,9 @@ class _TaskTileState extends State<_TaskTile>
     for (final goal in widget.goals) {
       if (goal.id == task.goalId) selectedGoal = goal;
     }
+    final titleColor = selectedGoal == null
+        ? (task.isCompleted ? _muted : _ink)
+        : Color(selectedGoal.colorValue);
     return TapRegion(
       onTapOutside: widget.expanded ? (_) => _toggleExpanded() : null,
       child: MouseRegion(
@@ -3439,7 +3486,7 @@ class _TaskTileState extends State<_TaskTile>
                               onChanged: (_) => _scheduleSave(),
                               onSubmitted: (_) => _saveDetails(),
                               style: TextStyle(
-                                color: task.isCompleted ? _muted : _ink,
+                                color: titleColor,
                                 fontSize: 14,
                                 decoration: task.isCompleted
                                     ? TextDecoration.lineThrough
@@ -3471,7 +3518,7 @@ class _TaskTileState extends State<_TaskTile>
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
-                                      color: task.isCompleted ? _muted : _ink,
+                                      color: titleColor,
                                       fontSize: 14,
                                       height: 1.25,
                                       decoration: task.isCompleted
@@ -3512,12 +3559,24 @@ class _TaskTileState extends State<_TaskTile>
                       ),
                   ],
                 ),
-                if (!widget.expanded && selectedGoal != null)
+                if (!widget.expanded && task.notes.trim().isNotEmpty)
                   Padding(
-                    padding: const EdgeInsets.only(left: 60, bottom: 6),
+                    padding: const EdgeInsets.only(
+                      left: 60,
+                      right: 16,
+                      bottom: 6,
+                    ),
                     child: Align(
                       alignment: Alignment.centerLeft,
-                      child: _GoalBadge(goal: selectedGoal),
+                      child: Text(
+                        task.notes,
+                        key: Key('task-note-preview-${task.id}'),
+                        style: const TextStyle(
+                          color: _muted,
+                          fontSize: 12,
+                          height: 1.5,
+                        ),
+                      ),
                     ),
                   ),
                 if (widget.expanded) ...[
@@ -3526,11 +3585,33 @@ class _TaskTileState extends State<_TaskTile>
                     child: Align(
                       alignment: Alignment.centerLeft,
                       child: TextButton.icon(
-                        key: Key('schedule-task-${task.id}'),
+                        key: Key('task-repeat-settings-${task.id}'),
                         onPressed: widget.onSchedule,
                         icon: const Icon(Icons.event_repeat, size: 16),
                         label: Text(
-                          '${dateKey(task.scheduledDate)} · ${task.repeat == EventRepeat.once ? '日期 / 重复' : task.repeat.label}',
+                          task.repeat == EventRepeat.once
+                              ? '不重复'
+                              : task.repeat.label,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 60),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        key: Key('task-reminder-settings-${task.id}'),
+                        onPressed: widget.onSchedule,
+                        icon: const Icon(Icons.notifications_none, size: 16),
+                        label: Text(
+                          task.reminder == null
+                              ? '不提醒'
+                              : '${task.reminder!.enabled
+                                    ? '提醒'
+                                    : task.reminder!.handledThrough == null
+                                    ? '已暂停'
+                                    : '已提醒'} · ${task.reminder!.startsAt.hour.toString().padLeft(2, '0')}:${task.reminder!.startsAt.minute.toString().padLeft(2, '0')}',
                         ),
                       ),
                     ),
@@ -3894,6 +3975,7 @@ class SettingsPage extends StatefulWidget {
     this.onOpenBackups,
     this.isLaunchAtStartupEnabled,
     this.onLaunchAtStartupChanged,
+    this.onOpenLegacyReminders,
   });
 
   final AppSettingsController controller;
@@ -3905,6 +3987,7 @@ class SettingsPage extends StatefulWidget {
   final VoidCallback? onOpenBackups;
   final IsLaunchAtStartupEnabledCallback? isLaunchAtStartupEnabled;
   final LaunchAtStartupChangedCallback? onLaunchAtStartupChanged;
+  final VoidCallback? onOpenLegacyReminders;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -4130,6 +4213,18 @@ class _SettingsPageState extends State<SettingsPage> {
                     const SizedBox(height: 20),
                     const _SettingsSectionTitle(label: '桌面'),
                     const SizedBox(height: 8),
+                    if (widget.onOpenLegacyReminders != null)
+                      _PreferenceRow(
+                        key: const Key('legacy-reminders-button'),
+                        label: '已有独立提醒',
+                        subtitle: '管理旧版创建的提醒',
+                        onTap: widget.onOpenLegacyReminders,
+                        trailing: const Icon(
+                          Icons.chevron_right,
+                          size: 16,
+                          color: _muted,
+                        ),
+                      ),
                     _PreferenceRow(
                       key: const Key('launch-at-startup-option'),
                       label: '开机启动',

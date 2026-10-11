@@ -262,6 +262,46 @@ class VaultRepository {
     return events;
   });
 
+  Future<List<GoodDayTask>> loadTaskReminders() =>
+      _operations.run(() => _readTasks(tasksDirectory));
+
+  Future<GoodDayEvent?> prepareTaskReminder(String taskId, DateTime now) =>
+      _writeOperation(() async {
+        final file = _taskFile(tasksDirectory, taskId);
+        if (!await file.exists()) return null;
+        final task = GoodDayTask.fromMarkdown(await file.readAsString());
+        final reminder = task.activeReminder;
+        final occurrence = reminder?.dueOccurrence(now);
+        if (reminder == null || occurrence == null) return null;
+        final prepared = reminder.pending(occurrence);
+        await _writeTask(task.copyWith(reminder: prepared));
+        return prepared;
+      });
+
+  Future<void> resolveTaskReminder(
+    String taskId,
+    DateTime occurrence, {
+    DateTime? snoozeUntil,
+  }) => _writeOperation(() async {
+    final task = GoodDayTask.fromMarkdown(
+      await _taskFile(tasksDirectory, taskId).readAsString(),
+    );
+    final reminder = task.activeReminder;
+    if (reminder == null ||
+        !reminder.enabled ||
+        reminder.pendingOccurrence != occurrence) {
+      throw const FileSystemException('待办提醒已发生变化，请重新查看');
+    }
+    if (snoozeUntil != null && !snoozeUntil.isAfter(_clock())) {
+      throw const FormatException('稍后提醒时间必须在未来');
+    }
+    await _writeTask(
+      task.copyWith(
+        reminder: reminder.resolve(occurrence, snoozeUntil: snoozeUntil),
+      ),
+    );
+  });
+
   File _eventFile(String id, {bool archived = false}) {
     if (!RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(id)) {
       throw const FormatException('事件标识无效');
@@ -447,6 +487,7 @@ class VaultRepository {
         repeatAnchor: base.repeatAnchor,
         occurrenceDate: date,
         goalId: base.goalId,
+        reminder: _reminderForDate(base, date, id),
         subtasks: [
           for (final step in base.subtasks)
             GoodDaySubtask(id: step.id, title: step.title),
@@ -466,7 +507,144 @@ class VaultRepository {
     required String notes,
     required DateTime date,
     required EventRepeat repeat,
+  }) => _writeOperation(
+    () => _saveScheduledTask(
+      task: task,
+      title: title,
+      notes: notes,
+      date: date,
+      repeat: repeat,
+    ),
+  );
+
+  Future<GoodDayTask> saveTaskOptions({
+    required GoodDayTask task,
+    required EventRepeat repeat,
+    required DateTime? reminderAt,
   }) => _writeOperation(() async {
+    final current = await _currentTask(task);
+    return _saveScheduledTask(
+      task: current,
+      title: current.title,
+      notes: current.notes,
+      date: current.scheduledDate,
+      repeat: repeat,
+      updateReminder: true,
+      reminderAt: reminderAt,
+    );
+  });
+
+  GoodDayEvent? _reminderForDate(GoodDayTask base, DateTime date, String id) {
+    final reminder = base.reminder;
+    if (reminder == null) return null;
+    final offset =
+        DateTime.utc(
+              reminder.startsAt.year,
+              reminder.startsAt.month,
+              reminder.startsAt.day,
+            )
+            .difference(
+              DateTime.utc(
+                base.scheduledDate.year,
+                base.scheduledDate.month,
+                base.scheduledDate.day,
+              ),
+            )
+            .inDays;
+    return GoodDayEvent(
+      id: 'task_$id',
+      title: base.title,
+      notes: base.notes,
+      startsAt: DateTime(
+        date.year,
+        date.month,
+        date.day + offset,
+        reminder.startsAt.hour,
+        reminder.startsAt.minute,
+      ),
+    );
+  }
+
+  GoodDayTask _configureReminder(GoodDayTask task, DateTime? time) {
+    if (time == null) return task.copyWith(clearReminder: true);
+    if (task.reminder?.startsAt == time) return task;
+    return task.copyWith(
+      reminder: GoodDayEvent(
+        id: 'task_${task.id}',
+        title: task.title,
+        notes: task.notes,
+        startsAt: time,
+      ),
+    );
+  }
+
+  Future<void> _writeReminderOptions(
+    GoodDayTask current,
+    GoodDayTask updated,
+  ) async {
+    final changes = <File, String>{
+      _taskFile(tasksDirectory, current.id): updated.toMarkdown(),
+    };
+    if (current.seriesId != null && !current.isCompleted) {
+      final file = _seriesFile(current.seriesId!);
+      if (await file.exists()) {
+        final series = TaskSeries.fromMarkdown(await file.readAsString());
+        if (series.enabled) {
+          changes[file] = TaskSeries(
+            id: series.id,
+            template: updated,
+            enabled: true,
+            generatedThrough: series.generatedThrough,
+          ).toMarkdown();
+          final today = DateTime(_clock().year, _clock().month, _clock().day);
+          for (final future in await _readTasks(tasksDirectory)) {
+            if (future.id == updated.id ||
+                future.seriesId != series.id ||
+                future.isCompleted ||
+                !future.scheduledDate.isAfter(today)) {
+              continue;
+            }
+            changes[_taskFile(tasksDirectory, future.id)] = future
+                .copyWith(
+                  reminder: _reminderForDate(
+                    updated,
+                    future.scheduledDate,
+                    future.id,
+                  ),
+                  clearReminder: updated.reminder == null,
+                )
+                .toMarkdown();
+          }
+        }
+      }
+    }
+    final originals = <File, String>{};
+    for (final file in changes.keys) {
+      originals[file] = await file.readAsString();
+    }
+    final written = <File>[];
+    try {
+      for (final entry in changes.entries) {
+        await SafeFile.write(entry.key, entry.value);
+        written.add(entry.key);
+      }
+    } catch (_) {
+      for (final file in written.reversed) {
+        await SafeFile.write(file, originals[file]!);
+      }
+      rethrow;
+    }
+  }
+
+  Future<GoodDayTask> _saveScheduledTask({
+    GoodDayTask? task,
+    required String title,
+    required String notes,
+    required DateTime date,
+    required EventRepeat repeat,
+    bool updateReminder = false,
+    DateTime? reminderAt,
+  }) async {
     if (title.trim().isEmpty) throw const FormatException('任务名称不能为空');
     var current = task == null ? null : await _currentTask(task);
     final normalized = DateTime(date.year, date.month, date.day);
@@ -478,6 +656,11 @@ class VaultRepository {
       throw const FormatException('已完成的记录保留原日期，请新建任务安排下一次');
     }
     if (!changed) {
+      if (updateReminder) {
+        final updated = _configureReminder(current, reminderAt);
+        await _writeReminderOptions(current, updated);
+        return updated;
+      }
       final updated = current.updateDetails(title: title, notes: notes);
       if (current.seriesId != null &&
           await _seriesFile(current.seriesId!).exists()) {
@@ -520,7 +703,7 @@ class VaultRepository {
       createdAt: now,
       scheduledDate: first,
     );
-    final saved = current.copyWith(
+    var saved = current.copyWith(
       title: title.trim(),
       notes: notes.trim(),
       scheduledDate: first,
@@ -531,6 +714,18 @@ class VaultRepository {
       occurrenceDate: first,
       clearSeries: seriesId == null,
     );
+    if (updateReminder) {
+      saved = _configureReminder(saved, reminderAt);
+    }
+    if (saved.reminder != null && !isSameDay(normalized, first)) {
+      saved = saved.copyWith(
+        reminder: _reminderForDate(
+          saved.copyWith(scheduledDate: normalized),
+          first,
+          saved.id,
+        ),
+      );
+    }
     await _writeTask(saved);
     try {
       if (seriesId != null) {
@@ -557,7 +752,7 @@ class VaultRepository {
     }
     await _syncDaily(await _readTasks(tasksDirectory), now);
     return saved;
-  });
+  }
 
   Future<void> stopTaskSeries(String id) =>
       _writeOperation(() => _stopTaskSeries(id));
@@ -1039,6 +1234,12 @@ class VaultRepository {
           goalId: task.goalId,
           clearGoal: task.goalId == null,
           subtasks: task.subtasks,
+          reminder: _reminderForDate(
+            task,
+            series.template.scheduledDate,
+            series.template.id,
+          ),
+          clearReminder: task.reminder == null,
         ),
       ).toMarkdown(),
     );

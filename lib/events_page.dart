@@ -466,7 +466,7 @@ class _EventReminderDialogState extends State<EventReminderDialog> {
     canPop: false,
     child: AlertDialog(
       insetPadding: const EdgeInsets.all(12),
-      title: const Text('待办事件提醒'),
+      title: const Text('待办提醒'),
       content: SizedBox(
         width: 320,
         child: SingleChildScrollView(

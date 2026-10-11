@@ -31,7 +31,44 @@ class EventReminderService {
     try {
       final store = repository();
       final now = clock();
-      final events = await store.loadEvents();
+      final events = [...await store.loadEvents()];
+      final taskReminders = <String, String>{};
+      final tasks = await store.loadTaskReminders();
+      final latest = <String, DateTime>{};
+      final today = DateTime(now.year, now.month, now.day);
+      for (final task in tasks) {
+        if (task.seriesId == null || task.scheduledDate.isAfter(today)) {
+          continue;
+        }
+        final day = task.occurrenceDate ?? task.scheduledDate;
+        if (latest[task.seriesId] == null ||
+            day.isAfter(latest[task.seriesId]!)) {
+          latest[task.seriesId!] = day;
+        }
+      }
+      if (tasks.any((task) => task.seriesId != null)) {
+        for (final series in await store.loadTaskSeries()) {
+          final due = series.schedule.latestOccurrenceAtOrBefore(today);
+          if (due != null &&
+              series.generatedThrough != null &&
+              !series.generatedThrough!.isBefore(due) &&
+              (latest[series.id] == null || due.isAfter(latest[series.id]!))) {
+            latest[series.id] = due;
+          }
+        }
+      }
+      for (final task in tasks) {
+        final day = task.occurrenceDate ?? task.scheduledDate;
+        if (task.seriesId != null &&
+            latest[task.seriesId] != null &&
+            day.isBefore(latest[task.seriesId]!)) {
+          continue;
+        }
+        final reminder = task.activeReminder;
+        if (reminder == null) continue;
+        events.add(reminder);
+        taskReminders[reminder.id] = task.id;
+      }
       events.sort(
         (a, b) => (a.nextReminderAt(now) ?? DateTime(9999)).compareTo(
           b.nextReminderAt(now) ?? DateTime(9999),
@@ -39,7 +76,10 @@ class EventReminderService {
       );
       for (final event in events) {
         if (event.dueOccurrence(now) == null) continue;
-        final claimed = await store.prepareEventReminder(event.id, now);
+        final taskId = taskReminders[event.id];
+        final claimed = taskId == null
+            ? await store.prepareEventReminder(event.id, now)
+            : await store.prepareTaskReminder(taskId, now);
         if (claimed == null ||
             _disposed ||
             !canPresent() ||
@@ -48,11 +88,20 @@ class EventReminderService {
         }
         final occurrence = claimed.pendingOccurrence!;
         await present(claimed, occurrence, (snooze) async {
-          await store.resolveEventReminder(
-            claimed.id,
-            occurrence,
-            snoozeUntil: snooze == null ? null : clock().add(snooze),
-          );
+          final snoozeUntil = snooze == null ? null : clock().add(snooze);
+          if (taskId == null) {
+            await store.resolveEventReminder(
+              claimed.id,
+              occurrence,
+              snoozeUntil: snoozeUntil,
+            );
+          } else {
+            await store.resolveTaskReminder(
+              taskId,
+              occurrence,
+              snoozeUntil: snoozeUntil,
+            );
+          }
           try {
             await onChanged();
           } catch (error) {

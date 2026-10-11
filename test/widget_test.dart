@@ -78,6 +78,11 @@ void main() {
       task = await repository.assignTaskGoal(task, goal.id);
       task = await repository.addSubtask(task, '阅读课程笔记');
       task = await repository.addSubtask(task, '完成课后练习');
+      task = await repository.updateTaskDetails(
+        task,
+        title: task.title,
+        notes: '先复习公式，再整理易错题',
+      );
       await repository.addTask('复习英语单词');
       await repository.setCompleted(await repository.addTask('阅读 20 页'), true);
       final plan = await repository.addPlan(
@@ -130,6 +135,12 @@ void main() {
       await inspect('01-today');
       await tester.tap(find.byKey(Key('task-content-${task.id}')));
       await inspect('04-task-detail');
+      await tester.tap(find.byKey(Key('task-reminder-settings-${task.id}')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('task-options-remind')));
+      await inspect('11-task-options');
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('nav-plans')));
       await inspect('02-plans');
       await tester.tap(find.byKey(Key('edit-plan-${plan.id}')));
@@ -187,7 +198,7 @@ void main() {
       );
       await _flushMicrotasks(tester);
       final paper = tester.getRect(find.byKey(const Key('main-paper')));
-      for (final mode in ['today', 'plans', 'goals', 'events', 'history']) {
+      for (final mode in ['today', 'plans', 'goals', 'history']) {
         final tab = tester.getRect(find.byKey(Key('nav-$mode')));
         expect(tab.right, lessThanOrEqualTo(paper.left + 1));
       }
@@ -225,6 +236,71 @@ void main() {
       await _flushMicrotasks(tester);
       expect(find.byKey(const Key('add-plan-button')), findsOneWidget);
       expect(find.byType(TaskBrowserPage), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'todo shows notes without a checkbox, colors titles and embeds reminder settings',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(400, 720);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repository = _MemoryRepository();
+      final goal = await repository.addGoal(
+        name: '考研',
+        description: '',
+        colorValue: 0xFF66899B,
+      );
+      var task = await repository.addTask('刷三套试卷');
+      task = await repository.assignTaskGoal(task, goal.id);
+      final desktop = _FakeDesktopExperience();
+      await tester.pumpWidget(
+        GoodDayApp(
+          repository: repository,
+          settingsController: AppSettingsController.inMemory(),
+          desktopExperience: desktop,
+        ),
+      );
+      await _flushMicrotasks(tester);
+      expect(find.text('待办'), findsWidgets);
+      expect(find.byKey(const Key('nav-events')), findsNothing);
+      await tester.tap(find.byKey(Key('task-content-${task.id}')));
+      await _flushMicrotasks(tester);
+      await tester.enterText(
+        find.byKey(Key('task-note-${task.id}')),
+        '整理错题并回顾公式',
+      );
+      await tester.tap(find.byKey(Key('task-reminder-settings-${task.id}')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('schedule-task-title')), findsNothing);
+      expect(find.text('安排日期'), findsNothing);
+      expect(await desktop.saveGuard!(), isFalse);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('task-options-remind')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('save-task-options')));
+      await _flushMicrotasks(tester);
+      expect(repository.tasks.single.reminder, isNotNull);
+      await tester.tap(find.byKey(const Key('nav-plans')));
+      await _flushMicrotasks(tester);
+      await tester.tap(find.byKey(const Key('nav-today')));
+      await _flushMicrotasks(tester);
+      expect(find.byKey(Key('task-note-preview-${task.id}')), findsOneWidget);
+      expect(find.text('考研'), findsNothing);
+      final title = tester.widget<Text>(
+        find
+            .descendant(
+              of: find.byKey(Key('task-content-${task.id}')),
+              matching: find.byType(Text),
+            )
+            .first,
+      );
+      expect(title.style!.color, Color(goal.colorValue));
+      expect(find.byType(Checkbox), findsOneWidget);
+      expect(repository.tasks.single.notes, '整理错题并回顾公式');
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     },
@@ -495,9 +571,7 @@ void main() {
     expect(goal.name, '深度学习');
     expect(goal.description, '完成 D2L 学习');
 
-    await tester.tap(find.byKey(const Key('nav-events')));
-    await _flushMicrotasks(tester);
-    expect(find.byKey(const Key('add-event')), findsOneWidget);
+    expect(find.byKey(const Key('nav-events')), findsNothing);
     await tester.tap(find.byKey(const Key('nav-today')));
     await _flushMicrotasks(tester);
     await tester.tap(find.byKey(const Key('add-task-button')));
@@ -884,6 +958,29 @@ class _MemoryRepository extends VaultRepository {
 
   @override
   Future<List<GoodDayEvent>> loadEvents() async => [];
+
+  @override
+  Future<List<GoodDayTask>> loadTaskReminders() async => List.of(tasks);
+
+  @override
+  Future<GoodDayTask> saveTaskOptions({
+    required GoodDayTask task,
+    required EventRepeat repeat,
+    required DateTime? reminderAt,
+  }) async => _replace(
+    task.copyWith(
+      repeat: repeat,
+      clearReminder: reminderAt == null,
+      reminder: reminderAt == null
+          ? null
+          : GoodDayEvent(
+              id: 'task_${task.id}',
+              title: task.title,
+              notes: task.notes,
+              startsAt: reminderAt,
+            ),
+    ),
+  );
 
   @override
   Future<GoodDayTask> addTask(String title) async {
