@@ -42,7 +42,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md') -Destination (Join-Path $bundle 'README.md')
         Copy-Item -LiteralPath (Join-Path $projectRoot 'docs') -Destination (Join-Path $bundle 'docs') -Recurse
         if ($InternalReview) {
-            Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/events-review.md') -Destination (Join-Path $bundle 'INTERNAL-REVIEW.md')
+            Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/tasks-review.md') -Destination (Join-Path $bundle 'INTERNAL-REVIEW.md')
         }
         $commit = & git rev-parse HEAD
         if ($LASTEXITCODE -ne 0) { throw 'Unable to read source commit.' }

@@ -13,6 +13,7 @@ import 'backup_page.dart';
 import 'data/safe_file.dart';
 import 'edit_safety.dart';
 import 'events_page.dart';
+import 'task_browser_page.dart';
 import 'event_reminder_service.dart';
 import 'data/vault_repository.dart';
 import 'desktop_experience.dart';
@@ -329,6 +330,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   late final EventReminderService _reminders;
   Timer? _reminderTimer;
   bool _eventEditorOpen = false;
+  bool _taskEditorOpen = false;
+  bool _taskBrowserOpen = false;
   bool _reminderOpen = false;
   late VaultRepository _repository;
   _HomeView _view = _HomeView.today;
@@ -358,10 +361,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<bool> _flushBeforeLeave() async {
-    if (_eventEditorOpen || _reminderOpen) {
+    if (_eventEditorOpen || _taskEditorOpen || _reminderOpen) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('请先保存或取消待办事件，或处理当前提醒')));
+            .showSnackBar(const SnackBar(content: Text('请先保存或取消当前编辑，或处理当前提醒')));
       }
       return false;
     }
@@ -392,6 +395,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _refreshing ||
         _transitioning ||
         _eventEditorOpen ||
+        _taskEditorOpen ||
         _reminderOpen) {
       return;
     }
@@ -443,7 +447,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           !_settingsOpen &&
           !_transitioning &&
           !_eventEditorOpen &&
-          (ModalRoute.of(context)?.isCurrent ?? true),
+          !_taskEditorOpen &&
+          (_taskBrowserOpen || (ModalRoute.of(context)?.isCurrent ?? true)),
       present: _presentReminder,
       onChanged: _loadEvents,
       onError: (error) {
@@ -534,7 +539,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   ) async {
     if (!mounted) return;
     _reminderOpen = true;
+    var fallback = false;
     try {
+      final native = await widget.desktopExperience?.showEventReminder(
+        event,
+        occurrence,
+        _now(),
+        resolve,
+      );
+      if (native == true || !mounted) return;
+      fallback = true;
       await widget.desktopExperience?.setReminderOnTop(true);
       await widget.desktopExperience?.showWindow();
       if (!mounted) return;
@@ -550,7 +564,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
     } finally {
       _reminderOpen = false;
-      await widget.desktopExperience?.setReminderOnTop(false);
+      if (fallback) await widget.desktopExperience?.setReminderOnTop(false);
     }
   }
 
@@ -1118,6 +1132,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         onSelect: _selectView,
                       ),
                       const SizedBox(height: 24),
+                      if (_view == _HomeView.today) ...[
+                        Wrap(
+                          spacing: 8,
+                          children: [
+                            TextButton.icon(
+                              key: const Key('home-schedule-task'),
+                              onPressed: _loading
+                                  ? null
+                                  : () => _editTaskSchedule(null),
+                              icon: const Icon(Icons.add, size: 16),
+                              label: const Text('安排任务'),
+                            ),
+                            TextButton.icon(
+                              key: const Key('home-task-history'),
+                              onPressed: _loading ? null : _openTaskBrowser,
+                              icon: const Icon(Icons.history, size: 16),
+                              label: const Text('日期与历史'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                      ],
                       if (_repository.unreadableFiles.isNotEmpty)
                         TextButton(
                           key: const Key('unreadable-files-warning'),
@@ -1165,6 +1201,53 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     };
   }
 
+  Future<void> _editTaskSchedule(GoodDayTask? task) async {
+    if (!await _saveBeforeLeave() || !mounted) return;
+    _taskEditorOpen = true;
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => TaskScheduleDialog(
+          task: task,
+          now: _now(),
+          onSave: (title, notes, date, repeat) async {
+            await _repository.saveScheduledTask(
+              task: task,
+              title: title,
+              notes: notes,
+              date: date,
+              repeat: repeat,
+            );
+          },
+        ),
+      );
+      if (mounted) await _load();
+    } finally {
+      _taskEditorOpen = false;
+    }
+  }
+
+  Future<void> _openTaskBrowser() async {
+    if (!await _saveBeforeLeave() || !mounted) return;
+    _taskBrowserOpen = true;
+    try {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => TaskBrowserPage(
+            repository: _repository,
+            clock: _now,
+            onEditingChanged: (editing) => _taskEditorOpen = editing,
+          ),
+        ),
+      );
+      if (mounted) await _load();
+    } finally {
+      _taskBrowserOpen = false;
+      _taskEditorOpen = false;
+    }
+  }
+
   Widget _buildTaskArea() {
     return Scrollbar(
       thickness: 2,
@@ -1197,6 +1280,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               onRemoveSubtask: (subtaskId) =>
                   _removeSubtask(task.id, subtaskId),
               onDelete: () => _deleteTask(task),
+              onSchedule: () => _editTaskSchedule(task),
             );
           }
           if (index == _tasks.length) {
@@ -3076,6 +3160,7 @@ class _TaskTile extends StatefulWidget {
     required this.onUpdateSubtask,
     required this.onRemoveSubtask,
     required this.onDelete,
+    required this.onSchedule,
   });
 
   final int number;
@@ -3090,6 +3175,7 @@ class _TaskTile extends StatefulWidget {
   final SubtaskUpdateCallback onUpdateSubtask;
   final Future<void> Function(String subtaskId) onRemoveSubtask;
   final VoidCallback onDelete;
+  final VoidCallback onSchedule;
 
   @override
   State<_TaskTile> createState() => _TaskTileState();
@@ -3386,6 +3472,20 @@ class _TaskTileState extends State<_TaskTile>
                     ),
                   ),
                 if (widget.expanded) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(left: 60),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        key: Key('schedule-task-${task.id}'),
+                        onPressed: widget.onSchedule,
+                        icon: const Icon(Icons.event_repeat, size: 16),
+                        label: Text(
+                          '${dateKey(task.scheduledDate)} · ${task.repeat == EventRepeat.once ? '日期 / 重复' : task.repeat.label}',
+                        ),
+                      ),
+                    ),
+                  ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(60, 2, 16, 7),
                     child: TextField(

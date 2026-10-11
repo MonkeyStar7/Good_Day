@@ -1,10 +1,13 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:launch_at_startup/launch_at_startup.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
+
+import 'models/good_day_event.dart';
 
 abstract interface class DesktopExperience {
   ValueListenable<int> get openSettingsRequests;
@@ -18,6 +21,13 @@ abstract interface class DesktopExperience {
   Future<void> showWindow();
 
   Future<void> setReminderOnTop(bool enabled);
+
+  Future<bool> showEventReminder(
+    GoodDayEvent event,
+    DateTime occurrence,
+    DateTime now,
+    Future<void> Function(Duration? snooze) resolve,
+  );
 
   Future<bool> isLaunchAtStartupEnabled();
 
@@ -35,6 +45,7 @@ class SystemDesktopExperience extends DesktopExperience
   final ValueNotifier<int> _refreshRequests = ValueNotifier<int>(0);
   Future<bool> Function()? _saveGuard;
   static const _lifecycle = MethodChannel('good_day/lifecycle');
+  static const _reminder = MethodChannel('good_day/reminder');
   bool _isExiting = false;
   bool _isCheckingExit = false;
 
@@ -97,6 +108,52 @@ class SystemDesktopExperience extends DesktopExperience
   @override
   Future<void> setReminderOnTop(bool enabled) =>
       windowManager.setAlwaysOnTop(enabled);
+
+  @override
+  Future<bool> showEventReminder(
+    GoodDayEvent event,
+    DateTime occurrence,
+    DateTime now,
+    Future<void> Function(Duration? snooze) resolve,
+  ) async {
+    final finished = Completer<void>();
+    var saving = false;
+    _reminder.setMethodCallHandler((call) async {
+      if (call.method != 'action' || saving || finished.isCompleted) return;
+      final minutes = call.arguments;
+      if (minutes is! int || ![0, 5, 10, 30].contains(minutes)) return;
+      saving = true;
+      try {
+        await resolve(minutes == 0 ? null : Duration(minutes: minutes));
+        await _reminder.invokeMethod<void>('dismiss');
+        finished.complete();
+      } catch (error) {
+        await _reminder.invokeMethod<void>('error', {
+          'message': '未能保存，请重试：$error',
+        });
+      } finally {
+        saving = false;
+      }
+    });
+    try {
+      await _reminder.invokeMethod<void>('show', {
+        'title': event.title,
+        'time': '事件时间：${eventDateTimeLabel(occurrence)}',
+        'notes': event.notes,
+        'timing': now.isAfter(occurrence)
+            ? '这是错过的提醒，现在补提醒你。'
+            : occurrence.isAfter(now)
+            ? '这是提前提醒，请准备好。'
+            : '现在该做这件事了。',
+      });
+      await finished.future;
+      return true;
+    } on MissingPluginException {
+      return false; // Flutter-only previews have no Windows runner.
+    } finally {
+      _reminder.setMethodCallHandler(null);
+    }
+  }
 
   @override
   Future<void> hideWindow() async {

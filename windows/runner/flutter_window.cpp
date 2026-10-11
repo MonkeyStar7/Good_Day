@@ -26,6 +26,8 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  reminder_window_ = std::make_unique<ReminderWindow>(
+      flutter_controller_->engine()->messenger(), GetHandle());
   lifecycle_channel_ =
       std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
           flutter_controller_->engine()->messenger(), "good_day/lifecycle",
@@ -43,6 +45,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  reminder_window_ = nullptr;
   lifecycle_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;

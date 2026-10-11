@@ -81,6 +81,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   ::MSG msg;
   while (::GetMessage(&msg, nullptr, 0, 0)) {
+    HWND root = ::GetAncestor(msg.hwnd, GA_ROOT);
+    wchar_t class_name[64] = {};
+    ::GetClassNameW(root, class_name, 64);
+    if (std::wstring(class_name) == L"GoodDay.Reminder" &&
+        ::IsDialogMessageW(root, &msg))
+      continue;
     ::TranslateMessage(&msg);
     ::DispatchMessage(&msg);
   }

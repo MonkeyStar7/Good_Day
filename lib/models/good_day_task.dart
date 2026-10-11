@@ -1,3 +1,5 @@
+import 'repeat_schedule.dart';
+
 class GoodDaySubtask {
   const GoodDaySubtask({
     required this.id,
@@ -30,6 +32,11 @@ class GoodDayTask {
     this.notes = '',
     this.subtasks = const [],
     this.goalId,
+    this.repeat = EventRepeat.once,
+    this.seriesId,
+    this.repeatAnchor,
+    this.occurrenceDate,
+    this.originalDate,
   });
 
   final String id;
@@ -42,106 +49,67 @@ class GoodDayTask {
   final String notes;
   final List<GoodDaySubtask> subtasks;
   final String? goalId;
+  final EventRepeat repeat;
+  final String? seriesId;
+  final DateTime? repeatAnchor, occurrenceDate, originalDate;
+  DateTime get originalScheduledDate => originalDate ?? scheduledDate;
 
-  GoodDayTask setCompleted(bool completed, DateTime now) {
-    return GoodDayTask(
-      id: id,
-      title: title,
-      createdAt: createdAt,
-      scheduledDate: scheduledDate,
-      isCompleted: completed,
-      completedAt: completed ? now : null,
-      deletedAt: deletedAt,
-      notes: notes,
-      subtasks: subtasks,
-      goalId: goalId,
-    );
-  }
+  GoodDayTask copyWith({
+    String? title,
+    String? notes,
+    DateTime? scheduledDate,
+    bool? isCompleted,
+    DateTime? completedAt,
+    DateTime? deletedAt,
+    bool clearCompletedAt = false,
+    bool clearDeletedAt = false,
+    String? goalId,
+    bool clearGoal = false,
+    List<GoodDaySubtask>? subtasks,
+    EventRepeat? repeat,
+    String? seriesId,
+    DateTime? repeatAnchor,
+    DateTime? occurrenceDate,
+    DateTime? originalDate,
+    bool clearSeries = false,
+  }) => GoodDayTask(
+    id: id,
+    title: title ?? this.title,
+    notes: notes ?? this.notes,
+    createdAt: createdAt,
+    scheduledDate: scheduledDate ?? this.scheduledDate,
+    isCompleted: isCompleted ?? this.isCompleted,
+    completedAt: clearCompletedAt ? null : completedAt ?? this.completedAt,
+    deletedAt: clearDeletedAt ? null : deletedAt ?? this.deletedAt,
+    goalId: clearGoal ? null : goalId ?? this.goalId,
+    subtasks: List.unmodifiable(subtasks ?? this.subtasks),
+    repeat: repeat ?? this.repeat,
+    seriesId: clearSeries ? null : seriesId ?? this.seriesId,
+    repeatAnchor: clearSeries ? null : repeatAnchor ?? this.repeatAnchor,
+    occurrenceDate: clearSeries ? null : occurrenceDate ?? this.occurrenceDate,
+    originalDate: originalDate ?? originalScheduledDate,
+  );
 
-  GoodDayTask rollForward(DateTime date) {
-    return GoodDayTask(
-      id: id,
-      title: title,
-      createdAt: createdAt,
-      scheduledDate: date,
-      isCompleted: isCompleted,
-      completedAt: completedAt,
-      deletedAt: deletedAt,
-      notes: notes,
-      subtasks: subtasks,
-      goalId: goalId,
-    );
-  }
-
-  GoodDayTask markDeleted(DateTime now) {
-    return GoodDayTask(
-      id: id,
-      title: title,
-      createdAt: createdAt,
-      scheduledDate: scheduledDate,
-      isCompleted: isCompleted,
-      completedAt: completedAt,
-      deletedAt: now,
-      notes: notes,
-      subtasks: subtasks,
-      goalId: goalId,
-    );
-  }
-
-  GoodDayTask restore() {
-    return GoodDayTask(
-      id: id,
-      title: title,
-      createdAt: createdAt,
-      scheduledDate: scheduledDate,
-      isCompleted: isCompleted,
-      completedAt: completedAt,
-      notes: notes,
-      subtasks: subtasks,
-      goalId: goalId,
-    );
-  }
-
-  GoodDayTask updateDetails({required String title, required String notes}) {
-    return GoodDayTask(
-      id: id,
-      title: title.trim(),
-      createdAt: createdAt,
-      scheduledDate: scheduledDate,
-      isCompleted: isCompleted,
-      completedAt: completedAt,
-      deletedAt: deletedAt,
-      notes: _singleLine(notes),
-      subtasks: subtasks,
-      goalId: goalId,
-    );
-  }
-
-  GoodDayTask assignGoal(String? nextGoalId) {
-    return GoodDayTask(
-      id: id,
-      title: title,
-      createdAt: createdAt,
-      scheduledDate: scheduledDate,
-      isCompleted: isCompleted,
-      completedAt: completedAt,
-      deletedAt: deletedAt,
-      notes: notes,
-      subtasks: subtasks,
-      goalId: nextGoalId,
-    );
-  }
-
-  GoodDayTask addSubtask(GoodDaySubtask subtask) {
-    return _withSubtasks([...subtasks, subtask]);
-  }
-
+  GoodDayTask setCompleted(bool completed, DateTime now) => copyWith(
+    isCompleted: completed,
+    completedAt: completed ? now : null,
+    clearCompletedAt: !completed,
+  );
+  GoodDayTask rollForward(DateTime date) => copyWith(scheduledDate: date);
+  GoodDayTask markDeleted(DateTime now) => copyWith(deletedAt: now);
+  GoodDayTask restore() => copyWith(clearDeletedAt: true);
+  GoodDayTask updateDetails({required String title, required String notes}) =>
+      copyWith(title: title.trim(), notes: _singleLine(notes));
+  GoodDayTask assignGoal(String? nextGoalId) =>
+      copyWith(goalId: nextGoalId, clearGoal: nextGoalId == null);
+  GoodDayTask addSubtask(GoodDaySubtask subtask) =>
+      copyWith(subtasks: [...subtasks, subtask]);
   GoodDayTask updateSubtask(
     String subtaskId, {
     String? title,
     bool? isCompleted,
-  }) {
-    return _withSubtasks([
+  }) => copyWith(
+    subtasks: [
       for (final subtask in subtasks)
         if (subtask.id == subtaskId)
           subtask.copyWith(
@@ -150,29 +118,11 @@ class GoodDayTask {
           )
         else
           subtask,
-    ]);
-  }
-
-  GoodDayTask removeSubtask(String subtaskId) {
-    return _withSubtasks(
-      subtasks.where((subtask) => subtask.id != subtaskId).toList(),
-    );
-  }
-
-  GoodDayTask _withSubtasks(List<GoodDaySubtask> nextSubtasks) {
-    return GoodDayTask(
-      id: id,
-      title: title,
-      createdAt: createdAt,
-      scheduledDate: scheduledDate,
-      isCompleted: isCompleted,
-      completedAt: completedAt,
-      deletedAt: deletedAt,
-      notes: notes,
-      subtasks: List.unmodifiable(nextSubtasks),
-      goalId: goalId,
-    );
-  }
+    ],
+  );
+  GoodDayTask removeSubtask(String subtaskId) => copyWith(
+    subtasks: subtasks.where((subtask) => subtask.id != subtaskId).toList(),
+  );
 
   String toMarkdown() {
     final safeTitle = title.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
@@ -188,6 +138,15 @@ class GoodDayTask {
       )
       ..writeln('created: ${createdAt.toIso8601String()}')
       ..writeln('scheduled: ${dateKey(scheduledDate)}')
+      ..writeln('original_scheduled: ${dateKey(originalScheduledDate)}')
+      ..writeln('recurrence: ${repeat.name}')
+      ..writeln('series: ${seriesId ?? ''}')
+      ..writeln(
+        'repeat_anchor: ${repeatAnchor == null ? '' : dateKey(repeatAnchor!)}',
+      )
+      ..writeln(
+        'occurrence: ${occurrenceDate == null ? '' : dateKey(occurrenceDate!)}',
+      )
       ..writeln('completed: ${completedAt?.toIso8601String() ?? ''}')
       ..writeln('deleted: ${deletedAt?.toIso8601String() ?? ''}')
       ..writeln('goal: ${goalId ?? ''}')
@@ -292,6 +251,12 @@ class GoodDayTask {
     }
 
     final goal = values['goal']?.trim();
+    if (values['recurrence'] != null &&
+        !EventRepeat.values.any(
+          (repeat) => repeat.name == values['recurrence'],
+        )) {
+      throw const FormatException('Invalid task recurrence.');
+    }
     return GoodDayTask(
       id: id,
       title: lines[titleIndex].substring(2).trim(),
@@ -303,6 +268,14 @@ class GoodDayTask {
       notes: notes,
       subtasks: List.unmodifiable(subtasks),
       goalId: goal == null || goal.isEmpty ? null : goal,
+      repeat: values['recurrence'] == null
+          ? EventRepeat.once
+          : EventRepeat.values.byName(values['recurrence']!),
+      seriesId: (values['series'] ?? '').isEmpty ? null : values['series'],
+      repeatAnchor: DateTime.tryParse(values['repeat_anchor'] ?? ''),
+      occurrenceDate: DateTime.tryParse(values['occurrence'] ?? ''),
+      originalDate:
+          DateTime.tryParse(values['original_scheduled'] ?? '') ?? scheduled,
     );
   }
 

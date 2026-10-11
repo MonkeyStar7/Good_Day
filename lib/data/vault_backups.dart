@@ -33,6 +33,7 @@ class VaultBackups {
     'Plans',
     'Goals',
     'Events',
+    'TaskSeries',
     'Daily',
     'Archive',
   ];

@@ -396,6 +396,14 @@ class _Desktop implements DesktopExperience {
   }
 
   @override
+  Future<bool> showEventReminder(
+    GoodDayEvent event,
+    DateTime occurrence,
+    DateTime now,
+    Future<void> Function(Duration? snooze) resolve,
+  ) async => false;
+
+  @override
   Future<void> hideWindow() async {}
   @override
   Future<bool> isLaunchAtStartupEnabled() async => false;

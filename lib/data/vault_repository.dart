@@ -9,6 +9,7 @@ import '../models/good_day_goal.dart';
 import '../models/good_day_plan.dart';
 import '../models/good_day_task.dart';
 import '../models/good_day_event.dart';
+import '../models/task_series.dart';
 
 enum TrashItemType { task, plan, goal, event }
 
@@ -105,6 +106,8 @@ class VaultRepository {
   Directory get goalsDirectory => _childDirectory(vaultDirectory, 'Goals');
   Directory get plansDirectory => _childDirectory(vaultDirectory, 'Plans');
   Directory get eventsDirectory => _childDirectory(vaultDirectory, 'Events');
+  Directory get taskSeriesDirectory =>
+      _childDirectory(vaultDirectory, 'TaskSeries');
   Directory get archivedEventsDirectory =>
       _childDirectory(archiveDirectory, 'Events');
 
@@ -122,6 +125,7 @@ class VaultRepository {
     await goalsDirectory.create(recursive: true);
     await plansDirectory.create(recursive: true);
     await eventsDirectory.create(recursive: true);
+    await taskSeriesDirectory.create(recursive: true);
     await archivedEventsDirectory.create(recursive: true);
   }
 
@@ -133,6 +137,7 @@ class VaultRepository {
       goalsDirectory,
       plansDirectory,
       eventsDirectory,
+      taskSeriesDirectory,
     ]) {
       if (!await directory.exists()) continue;
       await for (final entity in directory.list()) {
@@ -168,6 +173,7 @@ class VaultRepository {
       'Goals',
       'Plans',
       'Events',
+      'TaskSeries',
     ]) {
       await _copyDirectory(
         _childDirectory(vaultDirectory, name),
@@ -194,6 +200,7 @@ class VaultRepository {
       goalsDirectory,
       plansDirectory,
       eventsDirectory,
+      taskSeriesDirectory,
     ]) {
       if (await directory.exists()) await directory.delete(recursive: true);
     }
@@ -209,12 +216,14 @@ class VaultRepository {
 
   Future<List<GoodDayTask>> loadTasks() => _writeOperation(() async {
     await initialize();
+    await _ensureRepeatingTasks();
     final tasks = await _readTasks(tasksDirectory);
     final now = _clock();
 
     for (var i = 0; i < tasks.length; i++) {
       final task = tasks[i];
       if (!task.isCompleted &&
+          task.seriesId == null &&
           DateTime(
             task.scheduledDate.year,
             task.scheduledDate.month,
@@ -355,15 +364,232 @@ class VaultRepository {
         final now = _clock();
         final updated = task.setCompleted(completed, now);
         await _writeTask(updated);
+        if (completed && updated.seriesId != null) {
+          final seriesFile = _seriesFile(updated.seriesId!);
+          if (await seriesFile.exists()) {
+            final series = TaskSeries.fromMarkdown(
+              await seriesFile.readAsString(),
+            );
+            final next = series.schedule.nextOccurrenceAfter(
+              updated.occurrenceDate ?? updated.scheduledDate,
+            );
+            if (series.enabled && next != null) {
+              await _generateOccurrence(series, next);
+            }
+          }
+        }
         await _syncDaily(await _readTasks(tasksDirectory), now);
         return updated;
       });
+
+  File _seriesFile(String id) {
+    if (!RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(id)) {
+      throw const FormatException('重复任务标识无效');
+    }
+    return _taskFile(taskSeriesDirectory, id);
+  }
+
+  Future<List<TaskSeries>> loadTaskSeries() => _operations.run(_readTaskSeries);
+  Future<List<TaskSeries>> _readTaskSeries() async {
+    if (!await taskSeriesDirectory.exists()) return [];
+    final result = <TaskSeries>[];
+    await for (final file in taskSeriesDirectory.list(followLinks: false)) {
+      if (file is! File || !file.path.endsWith('.md')) continue;
+      try {
+        final series = TaskSeries.fromMarkdown(await file.readAsString());
+        if (file.absolute.path.toLowerCase() !=
+            _seriesFile(series.id).absolute.path.toLowerCase()) {
+          throw const FormatException('重复任务文件名不一致');
+        }
+        result.add(series);
+        _unreadableFiles.remove(file.path);
+      } on FormatException {
+        _unreadableFiles.add(file.path);
+      } on FileSystemException {
+        _unreadableFiles.add(file.path);
+      }
+    }
+    return result;
+  }
+
+  Future<void> _ensureRepeatingTasks() async {
+    final now = _clock();
+    final today = DateTime(now.year, now.month, now.day);
+    for (final series in await _readTaskSeries()) {
+      if (!series.enabled) continue;
+      final due = series.schedule.latestOccurrenceAtOrBefore(today);
+      if (due != null) await _generateOccurrence(series, due);
+    }
+  }
+
+  Future<void> _generateOccurrence(TaskSeries series, DateTime date) async {
+    if (!series.enabled ||
+        (series.generatedThrough != null &&
+            !date.isAfter(series.generatedThrough!))) {
+      return;
+    }
+    final id = '${series.id}_${dateKey(date).replaceAll('-', '')}';
+    // Deterministic IDs and a saved cursor prevent duplicates after restart,
+    // concurrent refresh, trash deletion, or a failed cursor write.
+    final file = _taskFile(tasksDirectory, id);
+    if (!await file.exists() &&
+        !await _taskFile(archiveDirectory, id).exists()) {
+      final base = series.template;
+      final task = GoodDayTask(
+        id: id,
+        title: base.title,
+        notes: base.notes,
+        createdAt: _clock(),
+        scheduledDate: date,
+        originalDate: date,
+        repeat: base.repeat,
+        seriesId: series.id,
+        repeatAnchor: base.repeatAnchor,
+        occurrenceDate: date,
+        goalId: base.goalId,
+        subtasks: [
+          for (final step in base.subtasks)
+            GoodDaySubtask(id: step.id, title: step.title),
+        ],
+      );
+      await _writeTask(task);
+    }
+    await SafeFile.write(
+      _seriesFile(series.id),
+      series.advance(date).toMarkdown(),
+    );
+  }
+
+  Future<GoodDayTask> saveScheduledTask({
+    GoodDayTask? task,
+    required String title,
+    required String notes,
+    required DateTime date,
+    required EventRepeat repeat,
+  }) => _writeOperation(() async {
+    if (title.trim().isEmpty) throw const FormatException('任务名称不能为空');
+    var current = task == null ? null : await _currentTask(task);
+    final normalized = DateTime(date.year, date.month, date.day);
+    final changed =
+        current == null ||
+        !isSameDay(current.scheduledDate, normalized) ||
+        current.repeat != repeat;
+    if (current != null && current.isCompleted && changed) {
+      throw const FormatException('已完成的记录保留原日期，请新建任务安排下一次');
+    }
+    if (!changed) {
+      final updated = current.updateDetails(title: title, notes: notes);
+      if (current.seriesId != null &&
+          await _seriesFile(current.seriesId!).exists()) {
+        final series = TaskSeries.fromMarkdown(
+          await _seriesFile(current.seriesId!).readAsString(),
+        );
+        final updatedSeries = TaskSeries(
+          id: series.id,
+          template: series.template.updateDetails(title: title, notes: notes),
+          enabled: series.enabled,
+          generatedThrough: series.generatedThrough,
+        );
+        await SafeFile.write(
+          _seriesFile(series.id),
+          updatedSeries.toMarkdown(),
+        );
+        for (final future in await _readTasks(tasksDirectory)) {
+          if (future.seriesId == series.id &&
+              !future.isCompleted &&
+              future.scheduledDate.isAfter(_clock())) {
+            await _writeTask(future.updateDetails(title: title, notes: notes));
+          }
+        }
+      }
+      await _writeTask(updated);
+      await _syncDaily(await _readTasks(tasksDirectory), _clock());
+      return updated;
+    }
+    final previous = current;
+    final now = _clock();
+    final seriesId = repeat == EventRepeat.once ? null : _newId('series', now);
+    final first = RepeatSchedule(normalized, repeat).nextOccurrenceAfter(
+      normalized.subtract(const Duration(microseconds: 1)),
+    )!;
+    current ??= GoodDayTask(
+      id: seriesId == null
+          ? _newId('gd', now)
+          : '${seriesId}_${dateKey(first).replaceAll('-', '')}',
+      title: title,
+      createdAt: now,
+      scheduledDate: first,
+    );
+    final saved = current.copyWith(
+      title: title.trim(),
+      notes: notes.trim(),
+      scheduledDate: first,
+      originalDate: first,
+      repeat: repeat,
+      seriesId: seriesId,
+      repeatAnchor: normalized,
+      occurrenceDate: first,
+      clearSeries: seriesId == null,
+    );
+    await _writeTask(saved);
+    try {
+      if (seriesId != null) {
+        await SafeFile.write(
+          _seriesFile(seriesId),
+          TaskSeries(
+            id: seriesId,
+            template: saved,
+            enabled: true,
+            generatedThrough: first,
+          ).toMarkdown(),
+        );
+      }
+    } catch (_) {
+      if (previous != null) {
+        await _writeTask(previous);
+      } else {
+        await _taskFile(tasksDirectory, saved.id).delete();
+      }
+      rethrow;
+    }
+    if (previous?.seriesId != null) {
+      await _stopTaskSeries(previous!.seriesId!, exceptId: saved.id);
+    }
+    await _syncDaily(await _readTasks(tasksDirectory), now);
+    return saved;
+  });
+
+  Future<void> stopTaskSeries(String id) =>
+      _writeOperation(() => _stopTaskSeries(id));
+  Future<void> _stopTaskSeries(String id, {String? exceptId}) async {
+    final file = _seriesFile(id);
+    if (!await file.exists()) return;
+    final series = TaskSeries.fromMarkdown(await file.readAsString());
+    await SafeFile.write(file, series.stop().toMarkdown());
+    final now = _clock();
+    final today = DateTime(now.year, now.month, now.day);
+    for (final task in await _readTasks(tasksDirectory)) {
+      if (task.seriesId != id ||
+          task.id == exceptId ||
+          task.isCompleted ||
+          !task.scheduledDate.isAfter(today)) {
+        continue;
+      }
+      await SafeFile.write(
+        _taskFile(archiveDirectory, task.id),
+        task.markDeleted(now).toMarkdown(),
+      );
+      await _taskFile(tasksDirectory, task.id).delete();
+    }
+    await _syncDaily(await _readTasks(tasksDirectory), now);
+  }
 
   Future<GoodDayTask> assignTaskGoal(GoodDayTask task, String? goalId) =>
       _writeOperation(() async {
         task = await _currentTask(task);
         final updated = task.assignGoal(goalId);
         await _writeTask(updated);
+        await _updateSeriesTemplate(updated);
         await _syncDaily(await _readTasks(tasksDirectory), _clock());
         return updated;
       });
@@ -533,6 +759,7 @@ class VaultRepository {
     }
     final updated = task.updateDetails(title: title, notes: notes);
     await _writeTask(updated);
+    await _updateSeriesTemplate(updated);
     await _syncDaily(await _readTasks(tasksDirectory), _clock());
     return updated;
   });
@@ -551,6 +778,7 @@ class VaultRepository {
           GoodDaySubtask(id: _newId('sub', now), title: normalizedTitle),
         );
         await _writeTask(updated);
+        await _updateSeriesTemplate(updated);
         await _syncDaily(await _readTasks(tasksDirectory), now);
         return updated;
       });
@@ -572,6 +800,7 @@ class VaultRepository {
       isCompleted: isCompleted,
     );
     await _writeTask(updated);
+    await _updateSeriesTemplate(updated);
     await _syncDaily(await _readTasks(tasksDirectory), now);
     return updated;
   });
@@ -582,6 +811,7 @@ class VaultRepository {
         final now = _clock();
         final updated = task.removeSubtask(subtaskId);
         await _writeTask(updated);
+        await _updateSeriesTemplate(updated);
         await _syncDaily(await _readTasks(tasksDirectory), now);
         return updated;
       });
@@ -789,6 +1019,29 @@ class VaultRepository {
   Future<void> _writeTask(GoodDayTask task) async {
     await tasksDirectory.create(recursive: true);
     await SafeFile.write(_taskFile(tasksDirectory, task.id), task.toMarkdown());
+  }
+
+  Future<void> _updateSeriesTemplate(GoodDayTask task) async {
+    if (task.seriesId == null || task.isCompleted) return;
+    final file = _seriesFile(task.seriesId!);
+    if (!await file.exists()) return;
+    final series = TaskSeries.fromMarkdown(await file.readAsString());
+    if (!series.enabled) return;
+    await SafeFile.write(
+      file,
+      TaskSeries(
+        id: series.id,
+        enabled: true,
+        generatedThrough: series.generatedThrough,
+        template: series.template.copyWith(
+          title: task.title,
+          notes: task.notes,
+          goalId: task.goalId,
+          clearGoal: task.goalId == null,
+          subtasks: task.subtasks,
+        ),
+      ).toMarkdown(),
+    );
   }
 
   Future<void> _writeGoal(GoodDayGoal goal) async {

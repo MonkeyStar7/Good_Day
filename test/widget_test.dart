@@ -762,6 +762,14 @@ class _FakeDesktopExperience implements DesktopExperience {
   Future<void> setReminderOnTop(bool enabled) async {}
 
   @override
+  Future<bool> showEventReminder(
+    GoodDayEvent event,
+    DateTime occurrence,
+    DateTime now,
+    Future<void> Function(Duration? snooze) resolve,
+  ) async => false;
+
+  @override
   Future<bool> isLaunchAtStartupEnabled() async => launchAtStartup;
 
   @override
