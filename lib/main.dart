@@ -153,11 +153,14 @@ Future<void> _startApplication(List<String> arguments) async {
     await windowManager.setTitle(internalReview ? 'Good Day 内部试用' : 'Good Day');
     await windowManager.setMinimumSize(const Size(396, 500));
     await windowManager.setResizable(true);
-    await windowManager.setHasShadow(true);
+    // Hidden title bars still reserve a native resize frame around the notes.
+    // Frameless keeps resizing while making the transparent gaps border-free.
+    await windowManager.setAsFrameless();
     await acrylic.Window.setEffect(
       effect: acrylic.WindowEffect.transparent,
       color: Colors.transparent,
     );
+    await windowManager.setHasShadow(false);
     await windowManager.setAlignment(Alignment.topRight);
     final aligned = await windowManager.getPosition();
     await windowManager.setPosition(Offset(aligned.dx - 16, aligned.dy + 16));

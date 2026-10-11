@@ -273,12 +273,19 @@ void Win32Window::OnDestroy() {
 }
 
 void Win32Window::UpdateTheme(HWND const window) {
+  // Windows 11 can draw a one-pixel outline even on a frameless window.
+  // Older Windows versions ignore this unsupported attribute.
+  constexpr DWORD kBorderColorAttribute = 34;     // DWMWA_BORDER_COLOR
+  constexpr COLORREF kNoBorderColor = 0xFFFFFFFE; // DWMWA_COLOR_NONE
+  DwmSetWindowAttribute(window, kBorderColorAttribute, &kNoBorderColor,
+                        sizeof(kNoBorderColor));
+
   DWORD light_mode;
   DWORD light_mode_size = sizeof(light_mode);
-  LSTATUS result = RegGetValue(HKEY_CURRENT_USER, kGetPreferredBrightnessRegKey,
-                               kGetPreferredBrightnessRegValue,
-                               RRF_RT_REG_DWORD, nullptr, &light_mode,
-                               &light_mode_size);
+  LSTATUS result =
+      RegGetValue(HKEY_CURRENT_USER, kGetPreferredBrightnessRegKey,
+                  kGetPreferredBrightnessRegValue, RRF_RT_REG_DWORD, nullptr,
+                  &light_mode, &light_mode_size);
 
   if (result == ERROR_SUCCESS) {
     BOOL enable_dark_mode = light_mode == 0;
