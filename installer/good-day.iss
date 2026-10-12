@@ -60,11 +60,11 @@ Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 Source: "{#BundleDir}\*"; DestDir: "{app}\App"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{userprograms}\{#SetupName}"; Filename: "{app}\App\good_day.exe"
-Name: "{userdesktop}\{#SetupName}"; Filename: "{app}\App\good_day.exe"
+Name: "{userprograms}\{#SetupName}"; Filename: "{app}\App\good_day.exe"; WorkingDir: "{app}\App"
+Name: "{userdesktop}\{#SetupName}"; Filename: "{app}\App\good_day.exe"; WorkingDir: "{app}\App"
 
 [Run]
-Filename: "{app}\App\good_day.exe"; Description: "打开 Good Day"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\App\good_day.exe"; WorkingDir: "{app}\App"; Description: "打开 Good Day"; Flags: nowait postinstall skipifsilent
 
 [Code]
 var

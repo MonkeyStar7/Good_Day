@@ -40,6 +40,10 @@ try {
     $firstExit = Install-Validation @(('/DIR=' + (Split-Path $program -Parent)), ('/LOG=' + (Join-Path $root 'first.log')))
     Check ($firstExit -eq 0) "First install failed: $firstExit."
     Check (Test-Path -LiteralPath (Join-Path $appFolder 'good_day.exe')) 'Custom program directory was not used.'
+    $validationShell = New-Object -ComObject WScript.Shell
+    $desktopLink = $validationShell.CreateShortcut((Join-Path $profile 'Desktop/Good Day Validation.lnk'))
+    Check ($desktopLink.TargetPath -eq (Join-Path $appFolder 'good_day.exe')) 'Shortcut target differs.'
+    Check ($desktopLink.WorkingDirectory -eq $appFolder) 'Shortcut did not use App as its working directory.'
     Check ((Get-Content -LiteralPath $config -Raw | ConvertFrom-Json).vaultPath -eq $data) 'Custom Unicode data directory was not saved.'
     $record = Join-Path $data 'keep.md'
     [IO.File]::WriteAllText($record, '# Keep this Markdown record', [Text.UTF8Encoding]::new($false))
