@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,6 +10,7 @@ import 'package:good_day/data/vault_repository.dart';
 import 'package:good_day/main.dart';
 import 'package:good_day/edit_safety.dart';
 import 'package:good_day/models/reminder_item.dart';
+import 'package:good_day/models/good_day_task.dart';
 import 'package:good_day/settings/app_settings.dart';
 
 Future<void> settle(WidgetTester tester, VaultRepository repository) async {
@@ -18,6 +20,19 @@ Future<void> settle(WidgetTester tester, VaultRepository repository) async {
     });
     await tester.pump();
   }
+  await tester.pumpAndSettle();
+}
+
+Future<void> openReminderOptions(WidgetTester tester) async {
+  await tester.ensureVisible(find.byKey(const Key('reminder-enabled')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('reminder-enabled')));
+  await tester.pumpAndSettle();
+  expect(find.byKey(const Key('reminder-options-dialog')), findsOneWidget);
+}
+
+Future<void> applyReminderOptions(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('apply-reminder-options')));
   await tester.pumpAndSettle();
 }
 
@@ -121,13 +136,31 @@ void main() {
         await inspect('01-empty-today');
         await tester.tap(find.byKey(const Key('add-reminder-morning')));
         await settle(tester, repository);
-        expect(find.text('09:00'), findsOneWidget);
-        expect(find.text('2026年10月12日'), findsOneWidget);
+        expect(find.byKey(const Key('reminder-date')), findsNothing);
+        expect(find.byKey(const Key('reminder-repeat')), findsNothing);
         await tester.enterText(find.byKey(const Key('reminder-title')), '复习数学');
         await tester.enterText(
           find.byKey(const Key('reminder-notes')),
           '先整理错题',
         );
+        await tester.tap(find.byKey(const Key('expand-reminder-details')));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const Key('add-reminder-subtask')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('add-reminder-subtask')));
+        await tester.pumpAndSettle();
+        final subtaskInput = find.byWidgetPredicate(
+          (widget) =>
+              widget is TextFormField &&
+              widget.key.toString().contains('subtask-title-'),
+        );
+        await tester.enterText(subtaskInput, '第一套试卷');
+        await openReminderOptions(tester);
+        expect(find.text('09:00'), findsOneWidget);
+        expect(find.text('2026年10月12日'), findsOneWidget);
+
         await tester.ensureVisible(find.byKey(const Key('reminder-time')));
         await tester.tap(find.byKey(const Key('reminder-time')));
         await tester.pumpAndSettle();
@@ -143,6 +176,7 @@ void main() {
           '20',
         );
         await inspect('03-custom-early');
+        await applyReminderOptions(tester);
         await tester.ensureVisible(find.byKey(const Key('save-reminder')));
         await tester.tap(find.byKey(const Key('save-reminder')));
         await settle(tester, repository);
@@ -151,6 +185,9 @@ void main() {
         expect(records.single.dueAt, DateTime(2026, 10, 12, 9));
         expect(records.single.early!.amount, 20);
         expect(find.text('复习数学'), findsOneWidget);
+        expect(find.text('先整理错题'), findsOneWidget);
+        expect(find.text('第一套试卷'), findsOneWidget);
+        expect(records.single.subtasks.single.title, '第一套试卷');
         await inspect('04-filled-today');
         await tester.tap(find.byKey(const Key('nav-plans')));
         await settle(tester, repository);
@@ -160,13 +197,32 @@ void main() {
         expect(find.text('后天 · 10月14日'), findsOneWidget);
         expect(find.text('复习数学'), findsOneWidget);
         expect(find.text('旧的阶段计划'), findsNothing);
-        await inspect('05-scheduled');
-        await tester.ensureVisible(
-          find.byKey(const Key('schedule-month-2026-11')),
+        await tester.scrollUntilVisible(
+          find.byKey(const Key('add-reminder-date-2026-10-18')),
+          120,
         );
+        expect(
+          find.byKey(const Key('add-reminder-date-2026-10-18')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('add-reminder-date-2026-10-19')),
+          findsNothing,
+        );
+        await inspect('05-scheduled');
+        await tester.scrollUntilVisible(
+          find.byKey(const Key('schedule-month-2026-11')),
+          160,
+        );
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('schedule-month-2026-11')));
         await tester.pumpAndSettle();
         await inspect('06-expanded-month');
+        await openReminderOptions(tester);
+        expect(find.text('2026年11月1日'), findsOneWidget);
+        expect(find.text('09:00'), findsOneWidget);
+        await tester.tap(find.widgetWithText(TextButton, '取消').last);
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('nav-history')));
         await settle(tester, repository);
         await tester.tap(find.text('未完成'));
@@ -183,7 +239,9 @@ void main() {
         await settle(tester, repository);
         await tester.tap(find.byKey(const Key('add-reminder-afternoon')));
         await tester.pumpAndSettle();
+        await openReminderOptions(tester);
         expect(find.text('15:00'), findsOneWidget);
+        await applyReminderOptions(tester);
         await tester.ensureVisible(find.text('取消'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('取消'));
@@ -194,7 +252,9 @@ void main() {
         );
         await tester.tap(find.byKey(const Key('add-reminder-tonight')));
         await tester.pumpAndSettle();
+        await openReminderOptions(tester);
         expect(find.text('20:00'), findsOneWidget);
+        await applyReminderOptions(tester);
         await tester.ensureVisible(find.text('取消'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('取消'));
@@ -205,6 +265,68 @@ void main() {
       });
     }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
   }
+  testWidgets(
+    'inline details keep subtasks visible and delete directly into trash',
+    (tester) async {
+      await tester.runAsync(() async {
+        final item = await repository.saveReminder(
+          title: '整理资料',
+          notes: '打印笔记',
+          dueAt: now.add(const Duration(hours: 1)),
+          rule: ReminderRule.presets['不重复']!,
+          enabled: false,
+          subtasks: const [GoodDaySubtask(id: 'part', title: '检查页码')],
+        );
+        await tester.pumpWidget(
+          GoodDayApp(
+            repository: repository,
+            clock: () => now,
+            settingsController: AppSettingsController.inMemory(),
+          ),
+        );
+        await settle(tester, repository);
+        expect(find.text('打印笔记'), findsOneWidget);
+        expect(find.text('检查页码'), findsOneWidget);
+        await tester.tap(find.byKey(const Key('reminder-subtask-part')));
+        await settle(tester, repository);
+        expect(
+          (await repository.loadReminders()).single.subtasks.single.isCompleted,
+          isTrue,
+        );
+        await tester.tap(find.byKey(Key('reminder-row-${item.id}')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('reminder-date')), findsNothing);
+        expect(find.byKey(const Key('delete-reminder')), findsNothing);
+        await openReminderOptions(tester);
+        final scope = EditScope.of(
+          tester.element(find.byKey(const Key('reminder-editor'))),
+        )!;
+        expect(
+          await scope.flush(),
+          isFalse,
+          reason: 'Unconfirmed reminder options must stay in the dialog',
+        );
+        await tester.tap(find.widgetWithText(TextButton, '取消').last);
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<SwitchListTile>(find.byKey(const Key('reminder-enabled')))
+              .value,
+          isFalse,
+        );
+        await tester.tap(find.byKey(const Key('expand-reminder-details')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('delete-reminder')));
+        await settle(tester, repository);
+        expect(await repository.loadReminders(), isEmpty);
+        expect((await repository.loadTrash()).single.title, '整理资料');
+        expect(find.byType(AlertDialog), findsNothing);
+        await tester.pumpWidget(const SizedBox());
+        await settle(tester, repository);
+      });
+    },
+  );
+
   testWidgets('new reminder is saved before navigating away from the editor', (
     tester,
   ) async {
@@ -278,11 +400,13 @@ void main() {
         await settle(tester, repository);
         await tester.tap(find.byKey(Key('reminder-row-${item.id}')));
         await tester.pumpAndSettle();
+        await openReminderOptions(tester);
         await tester.tap(find.byKey(const Key('reminder-date')));
         await tester.pumpAndSettle();
         await tester.tap(find.text('13').last);
         await tester.tap(find.text('确定').last);
         await tester.pumpAndSettle();
+        await applyReminderOptions(tester);
         await tester.ensureVisible(find.byKey(const Key('save-reminder')));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('save-reminder')));

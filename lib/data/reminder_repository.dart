@@ -53,6 +53,7 @@ extension ReminderRepository on VaultRepository {
     EarlyReminder? early,
     String? goalId,
     bool enabled = true,
+    List<GoodDaySubtask>? subtasks,
   }) => _writeOperation(() async {
     final current = item == null ? null : await _readReminderItem(item.id);
     var name = title.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
@@ -89,6 +90,11 @@ extension ReminderRepository on VaultRepository {
     final result = base.patch({
       'title': name,
       'notes': notes.trim(),
+      if (subtasks != null)
+        'subtasks': [
+          for (final task in subtasks)
+            {'id': task.id, 'title': task.title, 'completed': task.isCompleted},
+        ],
       'dueAt': dueAt.toIso8601String(),
       'rule': rule.toJson(),
       'early': early?.toJson(),
@@ -96,7 +102,9 @@ extension ReminderRepository on VaultRepository {
       'goalId': goalId,
       if (changed || current == null) ...{
         'earlyHandled': early != null && early.before(dueAt).isBefore(now),
-        'dueHandled': false,
+        // Choosing a time in the past records an overdue todo; it must not
+        // trigger an immediate alarm merely because it was just configured.
+        'dueHandled': dueAt.isBefore(now),
         'pendingPhase': null,
         'snoozedUntil': null,
       },
@@ -134,6 +142,10 @@ extension ReminderRepository on VaultRepository {
                 id: id,
                 title: current.title,
                 notes: current.notes,
+                subtasks: [
+                  for (final task in current.subtasks)
+                    task.copyWith(isCompleted: false),
+                ],
                 dueAt: next,
                 createdAt: _clock(),
                 goalId: current.goalId,
@@ -164,6 +176,27 @@ extension ReminderRepository on VaultRepository {
       }
       rethrow;
     }
+  });
+
+  Future<void> setReminderSubtaskCompleted(
+    ReminderItem item,
+    String subtaskId,
+    bool completed,
+  ) => _writeOperation(() async {
+    final current = await _readReminderItem(item.id);
+    if (current.deletedAt != null || current.isCompleted) return;
+    await _writeReminderItem(
+      current.patch({
+        'subtasks': [
+          for (final task in current.subtasks)
+            {
+              'id': task.id,
+              'title': task.title,
+              'completed': task.id == subtaskId ? completed : task.isCompleted,
+            },
+        ],
+      }),
+    );
   });
 
   Future<void> deleteReminder(ReminderItem item) => _writeOperation(() async {

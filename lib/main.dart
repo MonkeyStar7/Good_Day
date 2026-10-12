@@ -216,6 +216,23 @@ class GoodDayApp extends StatelessWidget {
           theme: ThemeData(
             useMaterial3: true,
             scaffoldBackgroundColor: Colors.transparent,
+            canvasColor: colors.paper,
+            datePickerTheme: DatePickerThemeData(
+              backgroundColor: colors.paper,
+              surfaceTintColor: Colors.transparent,
+              headerBackgroundColor: colors.panel,
+              headerForegroundColor: colors.ink,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            popupMenuTheme: PopupMenuThemeData(
+              color: colors.paper,
+              surfaceTintColor: Colors.transparent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
             fontFamily: settings.font.family,
             fontFamilyFallback: const [
               'Microsoft YaHei UI',
@@ -235,7 +252,9 @@ class GoodDayApp extends StatelessWidget {
             textButtonTheme: TextButtonThemeData(
               style: TextButton.styleFrom(
                 minimumSize: const Size(32, 36),
-                shape: const RoundedRectangleBorder(),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
                 textStyle: TextStyle(
                   fontSize: 12,
                   fontFamily: settings.font.family,
@@ -249,7 +268,9 @@ class GoodDayApp extends StatelessWidget {
             ),
             filledButtonTheme: FilledButtonThemeData(
               style: FilledButton.styleFrom(
-                shape: const RoundedRectangleBorder(),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
                 minimumSize: const Size(72, 36),
                 textStyle: TextStyle(
                   fontSize: 12,
@@ -264,7 +285,9 @@ class GoodDayApp extends StatelessWidget {
             dialogTheme: DialogThemeData(
               backgroundColor: colors.paper,
               surfaceTintColor: Colors.transparent,
-              shape: const RoundedRectangleBorder(),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
               titleTextStyle: TextStyle(
                 fontFamily: settings.font.family,
                 fontFamilyFallback: const [
@@ -901,7 +924,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('确认删除？'),
         content: Text('$label 将移到垃圾桶。'),
         actions: [
@@ -1195,6 +1218,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   borderRadius: const BorderRadius.only(
                     topLeft: Radius.circular(12),
                     bottomLeft: Radius.circular(12),
+                    topRight: Radius.circular(12),
+                    bottomRight: Radius.circular(12),
                   ),
                   border: Border.all(color: context.appColors.line),
                 ),
@@ -1801,7 +1826,9 @@ class _WindowButton extends StatelessWidget {
         hoverColor: context.appColors.hover,
         style: IconButton.styleFrom(
           backgroundColor: Colors.transparent,
-          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
         ),
         icon: Icon(icon),
       ),
@@ -2236,7 +2263,7 @@ class _GoalPickerRow extends StatelessWidget {
         tooltip: '选择目标',
         onSelected: (value) => onChanged(value.isEmpty ? null : value),
         color: context.appColors.paper,
-        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         itemBuilder: (context) => [
           const PopupMenuItem<String>(
             value: '',
@@ -4950,7 +4977,7 @@ class _TrashPageState extends State<TrashPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('清空垃圾桶？'),
         content: const Text('这里的内容将被永久删除，无法恢复。'),
         actions: [

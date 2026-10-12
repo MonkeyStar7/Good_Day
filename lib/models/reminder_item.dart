@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'good_day_task.dart';
+
 enum RepeatUnit { none, hour, day, week, month, year }
 
 enum LeadUnit { minute, hour, day, week, month }
@@ -203,6 +205,7 @@ class ReminderItem {
     required this.dueAt,
     required this.createdAt,
     this.notes = '',
+    this.subtasks = const [],
     this.goalId,
     this.rule = const ReminderRule(RepeatUnit.none),
     this.early,
@@ -219,6 +222,7 @@ class ReminderItem {
   final String id, title, notes;
   final DateTime dueAt, createdAt;
   final String? goalId, seriesRoot, pendingPhase;
+  final List<GoodDaySubtask> subtasks;
   final ReminderRule rule;
   final EarlyReminder? early;
   final bool enabled, earlyHandled, dueHandled;
@@ -255,6 +259,10 @@ class ReminderItem {
     'id': id,
     'title': title,
     'notes': notes,
+    'subtasks': [
+      for (final task in subtasks)
+        {'id': task.id, 'title': task.title, 'completed': task.isCompleted},
+    ],
     'dueAt': dueAt.toIso8601String(),
     'createdAt': createdAt.toIso8601String(),
     'goalId': goalId,
@@ -289,6 +297,14 @@ class ReminderItem {
       id: id,
       title: json['title'] as String,
       notes: json['notes'] as String,
+      subtasks: [
+        for (final task in (json['subtasks'] as List? ?? const []))
+          GoodDaySubtask(
+            id: task['id'] as String,
+            title: task['title'] as String,
+            isCompleted: task['completed'] as bool,
+          ),
+      ],
       dueAt: date('dueAt')!,
       createdAt: date('createdAt')!,
       goalId: json['goalId'] as String?,

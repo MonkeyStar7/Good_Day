@@ -105,7 +105,11 @@ class _ReminderHistoryPageState extends State<ReminderHistoryPage> {
         for (final item in reminders)
           _HistoryRecord(
             title: item.title,
-            notes: item.notes,
+            notes: [
+              if (item.notes.isNotEmpty) item.notes,
+              for (final task in item.subtasks)
+                '${task.isCompleted ? '✓' : '○'} ${task.title}',
+            ].join('\n'),
             kind:
                 '提醒事项 · ${reminderDate(item.dueAt)} ${reminderTime(item.dueAt)}',
             date: item.completedAt ?? item.createdAt,
