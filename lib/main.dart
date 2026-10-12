@@ -5275,7 +5275,7 @@ class _AccentOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) => _ColorChoice(
     key: Key('accent-${option.key}'),
-    color: option.color,
+    color: option.swatchColor,
     selected: selected,
     label: option.label,
     onTap: onTap,

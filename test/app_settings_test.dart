@@ -7,6 +7,9 @@ import 'package:good_day/settings/vault_location_store.dart';
 void main() {
   test('new installs use the Apple-style font preset by default', () {
     expect(const AppSettings().font, AppFont.appleStyle);
+    expect(const AppSettings().accent, AppAccent.cloudYellow);
+    expect(AppSettings.fromJson({}).accent, AppAccent.cloudYellow);
+    expect(AppSettings.fromJson({'accent': 'forest'}).accent, AppAccent.forest);
   });
 
   test('appearance settings persist inside the vault', () async {

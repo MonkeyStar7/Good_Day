@@ -9,6 +9,19 @@ constexpr wchar_t kClassName[] = L"GoodDay.Reminder";
 constexpr wchar_t kButtonProcedure[] = L"GoodDay.Reminder.ButtonProc";
 constexpr wchar_t kHovered[] = L"GoodDay.Reminder.Hovered";
 Gdiplus::Color Mix(int rgb, float amount, BYTE neutral = 255) {
+  // Match the cloud-yellow Flutter palette while keeping readable controls.
+  if (rgb == 0x8D742B) {
+    if (neutral == 255 && amount == 0.09f)
+      return Gdiplus::Color(255, 255, 253, 245);
+    if (neutral == 255 && amount == 0.16f)
+      return Gdiplus::Color(255, 255, 248, 230);
+    if (neutral == 255 && amount == 0.29f)
+      return Gdiplus::Color(255, 234, 225, 201);
+    if (neutral == 32 && amount == 0.52f)
+      return Gdiplus::Color(255, 63, 58, 45);
+    if (neutral == 120 && amount == 0.58f)
+      return Gdiplus::Color(255, 129, 118, 93);
+  }
   const auto blend = [amount, neutral](int channel) {
     return static_cast<BYTE>(neutral + (channel - neutral) * amount);
   };

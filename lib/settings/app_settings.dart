@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../data/safe_file.dart';
 import '../data/vault_backups.dart';
+import '../app_colors.dart';
 
 import 'package:flutter/material.dart';
 
@@ -26,6 +27,7 @@ enum AppFont {
 }
 
 enum AppAccent {
+  cloudYellow('cloud_yellow', '云朵黄', cloudYellowAccent),
   graphite('graphite', '石墨', Color(0xFF343A36)),
   forest('forest', '松绿', Color(0xFF365D46)),
   blueGrey('blue_grey', '雾蓝', Color(0xFF536D7A)),
@@ -42,17 +44,19 @@ enum AppAccent {
   final String key;
   final String label;
   final Color color;
+  Color get swatchColor =>
+      this == AppAccent.cloudYellow ? const Color(0xFFFFF2CA) : color;
 
   static AppAccent fromKey(String? key) => values.firstWhere(
     (accent) => accent.key == key,
-    orElse: () => AppAccent.forest,
+    orElse: () => AppAccent.cloudYellow,
   );
 }
 
 class AppSettings {
   const AppSettings({
     this.font = AppFont.appleStyle,
-    this.accent = AppAccent.forest,
+    this.accent = AppAccent.cloudYellow,
   });
 
   final AppFont font;

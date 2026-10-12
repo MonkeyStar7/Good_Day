@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -94,7 +95,7 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
     String section,
     DateTime date, [
     ReminderItem? item,
-    bool expand = false,
+    bool expand = true,
   ]) async {
     if (!await (_editor.currentState?.flushPendingEdits() ??
         Future.value(true))) {
@@ -280,46 +281,73 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
     DateTime date,
     Iterable<ReminderItem> items, {
     bool canAdd = true,
-  }) => Padding(
-    key: Key('reminder-section-$key'),
-    padding: const EdgeInsets.only(top: 18, bottom: 8),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.w500,
-            color: context.appColors.muted.withValues(alpha: 0.7),
-          ),
-        ),
-        for (final item in items) _row(item, key),
-        if (_draftSection == key && _editingItem == null)
-          _edit(key)
-        else if (canAdd)
+  }) {
+    final records = items.toList();
+    return Padding(
+      key: Key('reminder-section-$key'),
+      padding: const EdgeInsets.only(top: 18, bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
           InkWell(
             key: Key('add-reminder-$key'),
-            onTap: () => _openEditor(key, date),
-            child: SizedBox(
-              height: 34,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: Icon(
-                  Icons.add,
-                  size: 15,
-                  color: context.appColors.muted.withValues(alpha: 0.45),
-                ),
+            onTap: canAdd ? () => _openEditor(key, date) : null,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w500,
+                        color: context.appColors.muted.withValues(alpha: 0.7),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-        Divider(
-          height: 1,
-          color: context.appColors.line.withValues(alpha: 0.65),
-        ),
-      ],
-    ),
-  );
+          Divider(
+            height: 1,
+            color: context.appColors.line.withValues(alpha: 0.65),
+          ),
+          for (final item in records) _row(item, key),
+          if (_draftSection == key && _editingItem == null)
+            _edit(key)
+          else if (canAdd && records.isNotEmpty)
+            Semantics(
+              label: '添加下一条事项',
+              button: true,
+              child: InkWell(
+                key: Key('next-reminder-$key'),
+                onTap: () => _openEditor(key, date),
+                child: SizedBox(
+                  height: 40,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 5),
+                      child: SizedBox.square(
+                        dimension: 22,
+                        child: CustomPaint(
+                          painter: _DottedCirclePainter(
+                            context.appColors.muted.withValues(alpha: 0.55),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final now = widget.date;
@@ -354,7 +382,7 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
               IconButton(
                 key: const Key('add-scheduled-date'),
                 tooltip: '选择日期添加',
-                icon: const Icon(Icons.add, size: 20),
+                icon: const Icon(Icons.calendar_today_outlined, size: 18),
                 onPressed: () async {
                   final date = await showDatePicker(
                     context: context,
@@ -551,7 +579,7 @@ class ReminderEditor extends StatefulWidget {
     required this.onClosed,
     required this.onSaved,
     this.item,
-    this.initiallyExpanded = false,
+    this.initiallyExpanded = true,
   });
   final VaultRepository repository;
   final DateTime initialDate;
@@ -1125,6 +1153,60 @@ class ReminderEditorState extends State<ReminderEditor>
               style: const TextStyle(fontSize: 12),
             ),
             const SizedBox(height: 8),
+            if (_expanded) ...[
+              const SizedBox(height: 8),
+              for (var index = 0; index < _subtasks.length; index++)
+                Row(
+                  key: Key('edit-subtask-${_subtasks[index].id}'),
+                  children: [
+                    Checkbox(
+                      value: _subtasks[index].isCompleted,
+                      onChanged: _busy
+                          ? null
+                          : (value) => _editSubtask(index, completed: value),
+                    ),
+                    Expanded(
+                      child: TextFormField(
+                        key: Key('subtask-title-${_subtasks[index].id}'),
+                        initialValue: _subtasks[index].title,
+                        enabled: !_busy,
+                        style: const TextStyle(fontSize: 12),
+                        decoration: const InputDecoration(
+                          hintText: '子任务',
+                          border: InputBorder.none,
+                          isDense: true,
+                        ),
+                        onChanged: (value) => _editSubtask(index, title: value),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: '删除子任务',
+                      icon: const Icon(Icons.close, size: 15),
+                      onPressed: _busy
+                          ? null
+                          : () => _detail(() {
+                              _subtasksChanged = true;
+                              _subtasks.removeAt(index);
+                            }),
+                    ),
+                  ],
+                ),
+              TextButton(
+                key: const Key('add-reminder-subtask'),
+                onPressed: _busy
+                    ? null
+                    : () => _detail(() {
+                        _subtasksChanged = true;
+                        _subtasks.add(
+                          GoodDaySubtask(
+                            id: 'sub_${DateTime.now().microsecondsSinceEpoch}_${_subtaskSequence++}',
+                            title: '',
+                          ),
+                        );
+                      }),
+                child: const Text('添加子任务'),
+              ),
+            ],
             SwitchListTile(
               key: const Key('reminder-enabled'),
               contentPadding: EdgeInsets.zero,
@@ -1181,59 +1263,6 @@ class ReminderEditorState extends State<ReminderEditor>
                     ? null
                     : (goal) => _detail(() => _goal = goal == '' ? null : goal),
               ),
-              const SizedBox(height: 8),
-              for (var index = 0; index < _subtasks.length; index++)
-                Row(
-                  key: Key('edit-subtask-${_subtasks[index].id}'),
-                  children: [
-                    Checkbox(
-                      value: _subtasks[index].isCompleted,
-                      onChanged: _busy
-                          ? null
-                          : (value) => _editSubtask(index, completed: value),
-                    ),
-                    Expanded(
-                      child: TextFormField(
-                        key: Key('subtask-title-${_subtasks[index].id}'),
-                        initialValue: _subtasks[index].title,
-                        enabled: !_busy,
-                        style: const TextStyle(fontSize: 12),
-                        decoration: const InputDecoration(
-                          hintText: '子任务',
-                          border: InputBorder.none,
-                          isDense: true,
-                        ),
-                        onChanged: (value) => _editSubtask(index, title: value),
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: '删除子任务',
-                      icon: const Icon(Icons.close, size: 15),
-                      onPressed: _busy
-                          ? null
-                          : () => _detail(() {
-                              _subtasksChanged = true;
-                              _subtasks.removeAt(index);
-                            }),
-                    ),
-                  ],
-                ),
-              TextButton.icon(
-                key: const Key('add-reminder-subtask'),
-                onPressed: _busy
-                    ? null
-                    : () => _detail(() {
-                        _subtasksChanged = true;
-                        _subtasks.add(
-                          GoodDaySubtask(
-                            id: 'sub_${DateTime.now().microsecondsSinceEpoch}_${_subtaskSequence++}',
-                            title: '',
-                          ),
-                        );
-                      }),
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('添加子任务'),
-              ),
             ],
             if (_error != null)
               Text(
@@ -1244,6 +1273,7 @@ class ReminderEditorState extends State<ReminderEditor>
             Row(
               children: [
                 Expanded(
+                  flex: 2,
                   child: FilledButton(
                     key: const Key('save-reminder'),
                     onPressed: _busy
@@ -1255,10 +1285,13 @@ class ReminderEditorState extends State<ReminderEditor>
                     child: Text(_busy ? '保存中…' : '完成'),
                   ),
                 ),
-                TextButton(
-                  key: const Key('cancel-reminder'),
-                  onPressed: _busy ? null : widget.onClosed,
-                  child: const Text('取消'),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextButton(
+                    key: const Key('cancel-reminder'),
+                    onPressed: _busy ? null : widget.onClosed,
+                    child: const Text('取消'),
+                  ),
                 ),
               ],
             ),
@@ -1267,4 +1300,28 @@ class ReminderEditorState extends State<ReminderEditor>
       ),
     );
   }
+}
+
+class _DottedCirclePainter extends CustomPainter {
+  const _DottedCirclePainter(this.color);
+  final Color color;
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round;
+    final circle = Rect.fromCircle(
+      center: size.center(Offset.zero),
+      radius: size.shortestSide / 2 - 2,
+    );
+    for (var dash = 0; dash < 16; dash++) {
+      canvas.drawArc(circle, dash * math.pi / 8, math.pi / 20, false, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DottedCirclePainter oldDelegate) =>
+      oldDelegate.color != color;
 }
