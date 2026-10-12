@@ -16,6 +16,12 @@ String reminderTime(DateTime date) =>
 String reminderDate(DateTime date) => '${date.year}年${date.month}月${date.day}日';
 const _weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
+StrutStyle _reminderControlStrut(BuildContext context) =>
+    StrutStyle.fromTextStyle(
+      Theme.of(context).textTheme.bodyMedium!.copyWith(fontSize: 13, height: 1),
+      forceStrutHeight: true,
+    );
+
 class ReminderAgendaPage extends StatefulWidget {
   const ReminderAgendaPage({
     super.key,
@@ -876,51 +882,12 @@ class ReminderEditorState extends State<ReminderEditor>
     String name,
     TextEditingController controller,
     String label,
-  ) => Semantics(
+  ) => _ReminderNumberField(
+    name: name,
+    controller: controller,
     label: label,
-    child: SizedBox(
-      width: 44,
-      height: 36,
-      child: TextField(
-        key: Key(name),
-        enabled: !_busy,
-        controller: controller,
-        textAlign: TextAlign.center,
-        textAlignVertical: TextAlignVertical.center,
-        style: Theme.of(context).textTheme.bodyMedium!
-            .copyWith(fontSize: 14, color: context.appColors.ink),
-        keyboardType: TextInputType.number,
-        inputFormatters: [
-          FilteringTextInputFormatter.digitsOnly,
-          LengthLimitingTextInputFormatter(3),
-        ],
-        decoration: InputDecoration(
-          isDense: true,
-          filled: true,
-          fillColor: context.appColors.paper.withValues(alpha: 1),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 6,
-            vertical: 8,
-          ),
-          hintText: '1',
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(
-              color: context.appColors.line.withValues(alpha: 0.7),
-            ),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(
-              color: Theme.of(context).colorScheme.primary,
-              width: 1.3,
-            ),
-          ),
-        ),
-        onChanged: (_) => _detail(() => _error = null),
-      ),
-    ),
+    enabled: !_busy,
+    onChanged: (_) => _detail(() => _error = null),
   );
 
   Widget _reminderControls(BuildContext context) {
@@ -1076,44 +1043,40 @@ class ReminderEditorState extends State<ReminderEditor>
               ),
               if (_customRepeat) ...[
                 const SizedBox(height: 12),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 8,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    const Text('每', style: TextStyle(fontSize: 13)),
-                    _reminderNumber(
-                      'custom-repeat-interval',
-                      _interval,
-                      '重复间隔',
-                    ),
-                    SizedBox(
-                      width: 68,
-                      child: _ReminderChoice<RepeatUnit>(
-                        value: _rule.unit,
-                        labels: const {
-                          RepeatUnit.minute: '分钟',
-                          RepeatUnit.hour: '小时',
-                          RepeatUnit.day: '天',
-                          RepeatUnit.week: '周',
-                          RepeatUnit.month: '个月',
-                          RepeatUnit.year: '年',
-                        },
-                        onChanged: _busy
-                            ? null
-                            : (unit) => _detail(
-                                () => _rule = ReminderRule(
-                                  unit,
-                                  interval: _rule.interval,
-                                  weekdays: unit == RepeatUnit.week
-                                      ? _rule.weekdays
-                                      : const [],
-                                ),
+                _ReminderIntervalRow(
+                  prefix: '每',
+                  suffix: '一次',
+                  number: _reminderNumber(
+                    'custom-repeat-interval',
+                    _interval,
+                    '重复间隔',
+                  ),
+                  unit: SizedBox(
+                    width: 68,
+                    child: _ReminderChoice<RepeatUnit>(
+                      key: const Key('custom-repeat-unit'),
+                      value: _rule.unit,
+                      labels: const {
+                        RepeatUnit.minute: '分钟',
+                        RepeatUnit.hour: '小时',
+                        RepeatUnit.day: '天',
+                        RepeatUnit.week: '周',
+                        RepeatUnit.month: '个月',
+                        RepeatUnit.year: '年',
+                      },
+                      onChanged: _busy
+                          ? null
+                          : (unit) => _detail(
+                              () => _rule = ReminderRule(
+                                unit,
+                                interval: _rule.interval,
+                                weekdays: unit == RepeatUnit.week
+                                    ? _rule.weekdays
+                                    : const [],
                               ),
-                      ),
+                            ),
                     ),
-                    const Text('一次', style: TextStyle(fontSize: 13)),
-                  ],
+                  ),
                 ),
                 if (_rule.unit == RepeatUnit.week) ...[
                   const SizedBox(height: 10),
@@ -1189,36 +1152,36 @@ class ReminderEditorState extends State<ReminderEditor>
               ),
               if (_customLead) ...[
                 const SizedBox(height: 12),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 8,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    const Text('提前', style: TextStyle(fontSize: 13)),
-                    _reminderNumber('custom-lead-amount', _leadAmount, '提前时间'),
-                    SizedBox(
-                      width: 68,
-                      child: _ReminderChoice<LeadUnit>(
-                        value: _early?.unit ?? LeadUnit.minute,
-                        labels: const {
-                          LeadUnit.minute: '分钟',
-                          LeadUnit.hour: '小时',
-                          LeadUnit.day: '天',
-                          LeadUnit.week: '周',
-                          LeadUnit.month: '个月',
-                        },
-                        onChanged: _busy
-                            ? null
-                            : (unit) => _detail(
-                                () => _early = EarlyReminder(
-                                  int.tryParse(_leadAmount.text) ?? 5,
-                                  unit,
-                                ),
+                _ReminderIntervalRow(
+                  prefix: '提前',
+                  suffix: '提醒',
+                  number: _reminderNumber(
+                    'custom-lead-amount',
+                    _leadAmount,
+                    '提前时间',
+                  ),
+                  unit: SizedBox(
+                    width: 68,
+                    child: _ReminderChoice<LeadUnit>(
+                      key: const Key('custom-lead-unit'),
+                      value: _early?.unit ?? LeadUnit.minute,
+                      labels: const {
+                        LeadUnit.minute: '分钟',
+                        LeadUnit.hour: '小时',
+                        LeadUnit.day: '天',
+                        LeadUnit.week: '周',
+                        LeadUnit.month: '个月',
+                      },
+                      onChanged: _busy
+                          ? null
+                          : (unit) => _detail(
+                              () => _early = EarlyReminder(
+                                int.tryParse(_leadAmount.text) ?? 5,
+                                unit,
                               ),
-                      ),
+                            ),
                     ),
-                    const Text('提醒', style: TextStyle(fontSize: 13)),
-                  ],
+                  ),
                 ),
               ],
             ],
@@ -1564,7 +1527,7 @@ class _ReminderChoice<T> extends StatelessWidget {
         dropdownColor: context.appColors.paper.withValues(alpha: 1),
         focusColor: context.appColors.hover,
         style: Theme.of(context).textTheme.bodyMedium!
-            .copyWith(fontSize: 13, color: context.appColors.ink),
+            .copyWith(fontSize: 13, height: 1, color: context.appColors.ink),
         icon: Icon(Icons.expand_more, size: 16, color: context.appColors.muted),
         items: [
           for (final entry in labels.entries)
@@ -1572,6 +1535,7 @@ class _ReminderChoice<T> extends StatelessWidget {
               value: entry.key,
               child: Text(
                 entry.value,
+                strutStyle: _reminderControlStrut(context),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -1582,6 +1546,110 @@ class _ReminderChoice<T> extends StatelessWidget {
             : (next) {
                 if (next != null) onChanged!(next);
               },
+      ),
+    ),
+  );
+}
+
+/// Shared columns align both interval sentences horizontally and vertically.
+class _ReminderIntervalRow extends StatelessWidget {
+  const _ReminderIntervalRow({
+    required this.prefix,
+    required this.suffix,
+    required this.number,
+    required this.unit,
+  });
+  final String prefix, suffix;
+  final Widget number, unit;
+  @override
+  Widget build(BuildContext context) => DefaultTextStyle(
+    style: Theme.of(context).textTheme.bodyMedium!
+        .copyWith(fontSize: 13, height: 1, color: context.appColors.ink),
+    child: SizedBox(
+      height: 36,
+      child: Row(
+        children: [
+          SizedBox(
+            width: 28,
+            child: Text(prefix, strutStyle: _reminderControlStrut(context)),
+          ),
+          const SizedBox(width: 6),
+          number,
+          const SizedBox(width: 6),
+          unit,
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(suffix, strutStyle: _reminderControlStrut(context)),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// Draw the box outside InputDecorator so helper space cannot shrink its face.
+class _ReminderNumberField extends StatefulWidget {
+  const _ReminderNumberField({
+    required this.name,
+    required this.label,
+    required this.controller,
+    required this.enabled,
+    required this.onChanged,
+  });
+  final String name, label;
+  final TextEditingController controller;
+  final bool enabled;
+  final ValueChanged<String> onChanged;
+  @override
+  State<_ReminderNumberField> createState() => _ReminderNumberFieldState();
+}
+
+class _ReminderNumberFieldState extends State<_ReminderNumberField> {
+  bool _focused = false;
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: widget.label,
+    child: Focus(
+      canRequestFocus: false,
+      onFocusChange: (focused) => setState(() => _focused = focused),
+      child: Container(
+        key: Key('${widget.name}-box'),
+        width: 44,
+        height: 36,
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        decoration: BoxDecoration(
+          color: context.appColors.paper.withValues(alpha: 1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: _focused
+                ? Theme.of(context).colorScheme.primary
+                : context.appColors.line.withValues(alpha: 0.7),
+          ),
+        ),
+        child: Center(
+          child: TextField(
+            key: Key(widget.name),
+            enabled: widget.enabled,
+            controller: widget.controller,
+            strutStyle: _reminderControlStrut(context),
+            textAlign: TextAlign.center,
+            textAlignVertical: TextAlignVertical.center,
+            style: Theme.of(context).textTheme.bodyMedium!.copyWith(
+              fontSize: 13,
+              height: 1,
+              color: context.appColors.ink,
+            ),
+            keyboardType: TextInputType.number,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(3),
+            ],
+            // The outer box owns its border and spacing. Bypass the decorator's
+            // label/helper baseline so digits center exactly like the unit text.
+            decoration: null,
+            onChanged: widget.onChanged,
+          ),
+        ),
       ),
     ),
   );

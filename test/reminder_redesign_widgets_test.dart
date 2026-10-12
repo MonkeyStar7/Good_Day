@@ -226,9 +226,13 @@ void main() {
         await tester.tap(find.text('分钟').last);
         await tester.pumpAndSettle();
         final number = tester.getRect(
-          find.byKey(const Key('custom-repeat-interval')),
+          find.byKey(const Key('custom-repeat-interval-box')),
         );
-        final unit = tester.getRect(find.byType(DropdownButton<RepeatUnit>));
+        final unit = tester.getRect(
+          find.byKey(const Key('custom-repeat-unit')),
+        );
+        expect(number.height, unit.height);
+        expect(number.top, unit.top);
         expect((number.center.dy - unit.center.dy).abs(), lessThan(1));
         expect(unit.left - number.right, inInclusiveRange(0, 15));
         expect(find.text('一次'), findsOneWidget);
@@ -258,6 +262,57 @@ void main() {
           find.byKey(const Key('custom-lead-amount')),
           '20',
         );
+        final leadNumber = tester.getRect(
+          find.byKey(const Key('custom-lead-amount-box')),
+        );
+        final leadUnit = tester.getRect(
+          find.byKey(const Key('custom-lead-unit')),
+        );
+        final repeatNumber = tester.getRect(
+          find.byKey(const Key('custom-repeat-interval-box')),
+        );
+        final repeatUnit = tester.getRect(
+          find.byKey(const Key('custom-repeat-unit')),
+        );
+        expect(leadNumber.left, repeatNumber.left);
+        expect(leadUnit.left, repeatUnit.left);
+        expect(leadNumber.top, leadUnit.top);
+        expect(leadNumber.height, leadUnit.height);
+        double textBaseline(Finder finder) {
+          final box = tester.renderObject<RenderBox>(finder);
+          return box
+              .localToGlobal(
+                Offset(
+                  0,
+                  box.getDryBaseline(
+                    BoxConstraints.tight(box.size),
+                    TextBaseline.alphabetic,
+                  )!,
+                ),
+              )
+              .dy;
+        }
+
+        await inspect('03-custom-early');
+        for (final pair in [
+          ('custom-repeat-interval', 'custom-repeat-unit'),
+          ('custom-lead-amount', 'custom-lead-unit'),
+        ]) {
+          final editable = find.descendant(
+            of: find.byKey(Key(pair.$1)),
+            matching: find.byType(EditableText),
+          );
+          final unitText = find.descendant(
+            of: find.byKey(Key(pair.$2)),
+            matching: find.text('分钟'),
+          );
+          expect(
+            (textBaseline(editable) - textBaseline(unitText)).abs(),
+            lessThanOrEqualTo(1),
+            reason:
+                '${pair.$1}: editable=${textBaseline(editable)}, unit=${textBaseline(unitText)}',
+          );
+        }
         await inspect('03-custom-early');
         await applyReminderOptions(tester);
         await tester.ensureVisible(find.byKey(const Key('save-reminder')));
