@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import 'app_colors.dart';
 import 'data/vault_repository.dart';
-import 'models/good_day_goal.dart';
 import 'models/good_day_task.dart';
 import 'reminder_pages.dart';
 
@@ -12,11 +11,9 @@ class ReminderHistoryPage extends StatefulWidget {
   const ReminderHistoryPage({
     super.key,
     required this.repository,
-    required this.goals,
     required this.clock,
   });
   final VaultRepository repository;
-  final List<GoodDayGoal> goals;
   final DateTime Function() clock;
   @override
   State<ReminderHistoryPage> createState() => _ReminderHistoryPageState();
@@ -32,10 +29,8 @@ class _HistoryRecord {
     required this.toggle,
     required this.remove,
     this.stopRepeat,
-    this.goalId,
   });
   final String title, notes, kind;
-  final String? goalId;
   final DateTime date;
   final bool completed;
   final Future<void> Function(bool) toggle;
@@ -78,7 +73,6 @@ class _ReminderHistoryPageState extends State<ReminderHistoryPage> {
             ].where((line) => line.isNotEmpty).join('\n'),
             kind: '旧${task.period.taskLabel}',
             date: task.completedAt ?? task.scheduledDate,
-            goalId: task.goalId,
             completed: task.isCompleted,
             toggle: (value) async {
               await widget.repository.setCompleted(task, value);
@@ -95,7 +89,6 @@ class _ReminderHistoryPageState extends State<ReminderHistoryPage> {
                 '${plan.notes.isEmpty ? '' : '${plan.notes}\n'}原截止日期：${reminderDate(plan.deadline)}',
             kind: '旧计划',
             date: plan.completedAt ?? plan.createdAt,
-            goalId: plan.goalId,
             completed: plan.isCompleted,
             toggle: (value) async {
               await widget.repository.setPlanCompleted(plan, value);
@@ -113,7 +106,6 @@ class _ReminderHistoryPageState extends State<ReminderHistoryPage> {
             kind:
                 '提醒事项 · ${reminderDate(item.dueAt)} ${reminderTime(item.dueAt)}',
             date: item.completedAt ?? item.createdAt,
-            goalId: item.goalId,
             completed: item.isCompleted,
             toggle: (value) => widget.repository.completeReminder(item, value),
             remove: () => widget.repository.deleteReminder(item),
@@ -201,9 +193,6 @@ class _ReminderHistoryPageState extends State<ReminderHistoryPage> {
   }
 
   Widget _record(_HistoryRecord record) {
-    final goal = widget.goals
-        .where((goal) => goal.id == record.goalId)
-        .firstOrNull;
     return Column(
       children: [
         Padding(
@@ -236,9 +225,7 @@ class _ReminderHistoryPageState extends State<ReminderHistoryPage> {
                       record.title,
                       style: TextStyle(
                         fontSize: 16,
-                        color: goal == null
-                            ? context.appColors.ink
-                            : Color(goal.colorValue),
+                        color: context.appColors.ink,
                         decoration: record.completed
                             ? TextDecoration.lineThrough
                             : null,

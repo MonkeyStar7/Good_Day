@@ -142,6 +142,16 @@ void main() {
         await settle(tester, repository);
         expect(find.byKey(const Key('reminder-date')), findsNothing);
         expect(find.byKey(const Key('reminder-repeat')), findsNothing);
+        expect(find.text('所属目标'), findsNothing);
+        expect(find.text('添加待办事项名称'), findsOneWidget);
+        expect(find.byIcon(Icons.add), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('expand-reminder-details')),
+            matching: find.byIcon(Icons.arrow_drop_down),
+          ),
+          findsOneWidget,
+        );
         await tester.enterText(find.byKey(const Key('reminder-title')), '复习数学');
         await tester.enterText(
           find.byKey(const Key('reminder-notes')),
@@ -192,6 +202,7 @@ void main() {
         expect(records.single.subtasks.single.title, '第一套试卷');
         expect(find.byKey(const Key('next-reminder-morning')), findsOneWidget);
         expect(find.byIcon(Icons.add), findsNothing);
+        // The subtask add icon is visible only inside the editor.
         await inspect('04-filled-today');
         await tester.tap(find.byKey(const Key('next-reminder-morning')));
         await tester.pumpAndSettle();
@@ -249,10 +260,9 @@ void main() {
         expect(find.text('旧的阶段计划'), findsOneWidget);
         expect(find.text('复习数学'), findsOneWidget);
         await inspect('07-preserved-history');
-        await tester.tap(find.byKey(const Key('nav-goals')));
-        await settle(tester, repository);
-        expect(find.text('考研'), findsOneWidget);
-        await inspect('08-goals');
+        expect(find.byKey(const Key('nav-goals')), findsNothing);
+        expect(find.text('考研'), findsNothing);
+        expect((await repository.loadGoals()).single.name, '考研');
         await tester.tap(find.byKey(const Key('nav-today')));
         await settle(tester, repository);
         await tester.tap(find.byKey(const Key('add-reminder-afternoon')));
@@ -316,6 +326,25 @@ void main() {
         expect(find.byKey(const Key('reminder-date')), findsNothing);
         expect(find.byKey(const Key('delete-reminder')), findsOneWidget);
         expect(find.byKey(const Key('add-reminder-subtask')), findsOneWidget);
+        await tester.tap(find.byKey(const Key('expand-reminder-details')));
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('expand-reminder-details')),
+            matching: find.byIcon(Icons.arrow_right),
+          ),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('add-reminder-subtask')), findsNothing);
+        await tester.tap(find.byKey(const Key('expand-reminder-details')));
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('expand-reminder-details')),
+            matching: find.byIcon(Icons.arrow_drop_down),
+          ),
+          findsOneWidget,
+        );
         await openReminderOptions(tester);
         final scope = EditScope.of(
           tester.element(find.byKey(const Key('reminder-editor'))),

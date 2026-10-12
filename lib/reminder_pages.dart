@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 import 'app_colors.dart';
 import 'data/vault_repository.dart';
 import 'edit_safety.dart';
-import 'models/good_day_goal.dart';
 import 'models/good_day_task.dart';
 import 'models/reminder_item.dart';
 import 'task_inline_options.dart';
@@ -23,14 +22,12 @@ class ReminderAgendaPage extends StatefulWidget {
     required this.repository,
     required this.date,
     required this.clock,
-    required this.goals,
     required this.scheduled,
     required this.onEditingChanged,
   });
   final VaultRepository repository;
   final DateTime date;
   final DateTime Function() clock;
-  final List<GoodDayGoal> goals;
   final bool scheduled;
   final ValueChanged<bool> onEditingChanged;
   @override
@@ -45,6 +42,7 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
   String? _draftSection, _error;
   int _months = 12;
   bool _showCompleted = false;
+  final _expandedMonths = <String>{};
   bool _expandDetails = false;
   var _editor = GlobalKey<ReminderEditorState>();
   @override
@@ -131,7 +129,6 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
     item: _editingItem,
     initiallyExpanded: _expandDetails,
     initialDate: _draftDate!,
-    goals: widget.goals,
     onClosed: _closeEditor,
     onSaved: () async {
       _closeEditor();
@@ -139,9 +136,6 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
     },
   );
   Widget _row(ReminderItem item, String section) {
-    final goal = widget.goals
-        .where((goal) => goal.id == item.goalId)
-        .firstOrNull;
     final overdue = !item.isCompleted && item.dueAt.isBefore(widget.clock());
     return Column(
       children: [
@@ -152,76 +146,79 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
             key: Key('reminder-row-${item.id}'),
             onTap: () => _openEditor(section, item.dueAt, item),
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  SizedBox(
-                    width: 30,
-                    height: 26,
-                    child: Checkbox(
-                      key: Key('reminder-complete-${item.id}'),
-                      value: item.isCompleted,
-                      onChanged: (value) => _complete(item, value ?? false),
-                      shape: const CircleBorder(),
-                    ),
-                  ),
-                  const SizedBox(width: 7),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 30,
+                        height: 28,
+                        child: Checkbox(
+                          key: Key('reminder-complete-${item.id}'),
+                          value: item.isCompleted,
+                          onChanged: (value) => _complete(item, value ?? false),
+                          shape: const CircleBorder(),
+                        ),
+                      ),
+                      const SizedBox(width: 7),
+                      Expanded(
+                        child: Text(
                           item.title,
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
-                            color: goal == null
-                                ? context.appColors.ink
-                                : Color(goal.colorValue),
+                            color: context.appColors.ink,
                             decoration: item.isCompleted
                                 ? TextDecoration.lineThrough
                                 : null,
                           ),
                         ),
-                        if (item.notes.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              item.notes,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: context.appColors.muted,
-                              ),
-                            ),
-                          ),
-                        if (item.enabled)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              '${isSameDay(item.dueAt, widget.date) ? '' : '${item.dueAt.month}月${item.dueAt.day}日 · '}${reminderTime(item.dueAt)}${item.rule.unit == RepeatUnit.none ? '' : ' · ${item.rule.label}'}${item.early == null ? '' : ' · ${item.early!.label}'}',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: overdue
-                                    ? const Color(0xFFA65345)
-                                    : context.appColors.muted,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
+                      ),
+                      IconButton(
+                        key: Key('expand-reminder-${item.id}'),
+                        tooltip: '展开事项设置',
+                        constraints: const BoxConstraints.tightFor(
+                          width: 32,
+                          height: 32,
+                        ),
+                        padding: EdgeInsets.zero,
+                        onPressed: () =>
+                            _openEditor(section, item.dueAt, item, true),
+                        icon: Icon(
+                          Icons.arrow_right,
+                          size: 22,
+                          color: context.appColors.muted,
+                        ),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    key: Key('expand-reminder-${item.id}'),
-                    tooltip: '展开事项设置',
-                    onPressed: () =>
-                        _openEditor(section, item.dueAt, item, true),
-                    icon: Icon(
-                      Icons.expand_more,
-                      size: 19,
-                      color: context.appColors.muted,
+                  if (item.notes.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 37, top: 4),
+                      child: Text(
+                        item.notes,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: context.appColors.muted,
+                        ),
+                      ),
                     ),
-                  ),
+                  if (item.enabled)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 37, top: 4),
+                      child: Text(
+                        '${isSameDay(item.dueAt, widget.date) ? '' : '${item.dueAt.month}月${item.dueAt.day}日 · '}${reminderTime(item.dueAt)}${item.rule.unit == RepeatUnit.none ? '' : ' · ${item.rule.label}'}${item.early == null ? '' : ' · ${item.early!.label}'}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: overdue
+                              ? const Color(0xFFA65345)
+                              : context.appColors.muted,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -480,6 +477,15 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
       result.add(
         ExpansionTile(
           maintainState: true,
+          onExpansionChanged: (expanded) => setState(() {
+            final id = '${today.year}-${today.month}';
+            expanded ? _expandedMonths.add(id) : _expandedMonths.remove(id);
+          }),
+          trailing: Icon(
+            _expandedMonths.contains('${today.year}-${today.month}')
+                ? Icons.arrow_drop_down
+                : Icons.arrow_right,
+          ),
           key: Key('schedule-month-${today.year}-${today.month}'),
           tilePadding: const EdgeInsets.symmetric(horizontal: 5),
           title: Text(
@@ -575,7 +581,6 @@ class ReminderEditor extends StatefulWidget {
     super.key,
     required this.repository,
     required this.initialDate,
-    required this.goals,
     required this.onClosed,
     required this.onSaved,
     this.item,
@@ -583,7 +588,6 @@ class ReminderEditor extends StatefulWidget {
   });
   final VaultRepository repository;
   final DateTime initialDate;
-  final List<GoodDayGoal> goals;
   final ReminderItem? item;
   final bool initiallyExpanded;
   final VoidCallback onClosed;
@@ -600,7 +604,7 @@ class ReminderEditorState extends State<ReminderEditor>
   late DateTime _due;
   late ReminderRule _rule;
   EarlyReminder? _early;
-  String? _goal, _error;
+  String? _error;
   bool _busy = false,
       _customRepeat = false,
       _customLead = false,
@@ -620,7 +624,6 @@ class ReminderEditorState extends State<ReminderEditor>
     _due = widget.item?.dueAt ?? widget.initialDate;
     _rule = widget.item?.rule ?? const ReminderRule(RepeatUnit.none);
     _early = widget.item?.early;
-    _goal = widget.item?.goalId;
     _enabled = widget.item?.enabled ?? false;
     _expanded = widget.initiallyExpanded;
     _subtasks = [...?widget.item?.subtasks];
@@ -710,7 +713,7 @@ class ReminderEditorState extends State<ReminderEditor>
         dueAt: _due,
         rule: rule,
         early: early,
-        goalId: _goal,
+        goalId: widget.item?.goalId,
         enabled: _enabled,
         subtasks: _subtasksChanged
             ? [
@@ -1101,7 +1104,7 @@ class ReminderEditorState extends State<ReminderEditor>
                     autofocus: true,
                     enabled: !_busy,
                     decoration: const InputDecoration(
-                      hintText: '事项名称',
+                      hintText: '添加待办事项名称',
                       border: InputBorder.none,
                       isDense: true,
                     ),
@@ -1123,7 +1126,7 @@ class ReminderEditorState extends State<ReminderEditor>
                       ? null
                       : () => setState(() => _expanded = !_expanded),
                   icon: Icon(
-                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    _expanded ? Icons.arrow_drop_down : Icons.arrow_right,
                     size: 19,
                   ),
                 ),
@@ -1191,7 +1194,7 @@ class ReminderEditorState extends State<ReminderEditor>
                     ),
                   ],
                 ),
-              TextButton(
+              TextButton.icon(
                 key: const Key('add-reminder-subtask'),
                 onPressed: _busy
                     ? null
@@ -1204,7 +1207,8 @@ class ReminderEditorState extends State<ReminderEditor>
                           ),
                         );
                       }),
-                child: const Text('添加子任务'),
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('添加子任务'),
               ),
             ],
             SwitchListTile(
@@ -1238,32 +1242,6 @@ class ReminderEditorState extends State<ReminderEditor>
                   ),
                 ),
               ),
-            if (_expanded) ...[
-              DropdownButtonFormField<String>(
-                initialValue: widget.goals.any((goal) => goal.id == _goal)
-                    ? _goal
-                    : '',
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: '所属目标'),
-                items: [
-                  const DropdownMenuItem(value: '', child: Text('无')),
-                  for (final goal in widget.goals)
-                    DropdownMenuItem(
-                      value: goal.id,
-                      child: Text(
-                        goal.name,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Color(goal.colorValue),
-                        ),
-                      ),
-                    ),
-                ],
-                onChanged: _busy
-                    ? null
-                    : (goal) => _detail(() => _goal = goal == '' ? null : goal),
-              ),
-            ],
             if (_error != null)
               Text(
                 _error!,

@@ -49,14 +49,14 @@ enum AppAccent {
 
   static AppAccent fromKey(String? key) => values.firstWhere(
     (accent) => accent.key == key,
-    orElse: () => AppAccent.cloudYellow,
+    orElse: () => AppAccent.forest,
   );
 }
 
 class AppSettings {
   const AppSettings({
     this.font = AppFont.appleStyle,
-    this.accent = AppAccent.cloudYellow,
+    this.accent = AppAccent.forest,
   });
 
   final AppFont font;

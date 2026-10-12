@@ -79,7 +79,7 @@ class _BackupPageState extends State<BackupPage> {
       builder: (context) => AlertDialog(
         title: const Text('恢复这份备份？'),
         content: const Text(
-          '任务、计划、目标、待办事件、每日记录和外观设置会回到备份时的状态。恢复前会先备份当前数据；之后新增的内容不会保留在当前列表中。提醒记录也会还原，可能再次提醒。',
+          '应用数据和外观设置会回到备份时的状态。恢复前会先备份当前数据；之后新增的内容不会保留在当前列表中。提醒记录也会还原，可能再次提醒。',
         ),
         actions: [
           TextButton(

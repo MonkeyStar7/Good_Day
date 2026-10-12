@@ -539,7 +539,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _load() async {
     try {
       final tasks = await _repository.loadTasks();
-      final goals = await _repository.loadGoals();
+      final goals = _repository.usesReminderWorkflow
+          ? <GoodDayGoal>[]
+          : await _repository.loadGoals();
       final plans = await _repository.loadPlans();
       final events = await _repository.loadEvents();
       if (!mounted) return;
@@ -951,7 +953,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         .showSnackBar(SnackBar(content: Text('$type已移到垃圾桶')));
   }
 
-  Future<List<TrashItem>> _loadTrash() => _repository.loadTrash();
+  Future<List<TrashItem>> _loadTrash() async {
+    final items = await _repository.loadTrash();
+    return items
+        .where(
+          (item) =>
+              !_repository.usesReminderWorkflow ||
+              item.type != TrashItemType.goal,
+        )
+        .toList();
+  }
 
   Future<void> _restoreTrashItem(TrashItem item) async {
     await _repository.restoreTrashItem(item);
@@ -1107,7 +1118,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
       await nextRepository.initialize();
       final tasks = await nextRepository.loadTasks();
-      final goals = await nextRepository.loadGoals();
+      final goals = nextRepository.usesReminderWorkflow
+          ? <GoodDayGoal>[]
+          : await nextRepository.loadGoals();
       final plans = await nextRepository.loadPlans();
       final events = await nextRepository.loadEvents();
       await widget.settingsController.useVault(targetDirectory);
@@ -1315,7 +1328,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             repository: _repository,
             date: _displayDate,
             clock: _now,
-            goals: _goals,
             scheduled: _view == _HomeView.plans,
             onEditingChanged: (editing) => _reminderEditorOpen = editing,
           ),
@@ -1325,7 +1337,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return ReminderHistoryPage(
           key: ValueKey(_repository.vaultDirectory.path),
           repository: _repository,
-          goals: _goals,
           clock: _now,
         );
       }
@@ -1923,7 +1934,9 @@ class _NoteNavigation extends StatelessWidget {
       padding: const EdgeInsets.only(top: 88),
       child: Column(
         children: [
-          for (final view in _HomeView.values)
+          for (final view in _HomeView.values.where(
+            (view) => !reminderWorkflow || view != _HomeView.goals,
+          ))
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: Semantics(
@@ -4527,7 +4540,7 @@ class _SettingsPageState extends State<SettingsPage> {
         builder: (dialogContext) => AlertDialog(
           title: const Text('删除原位置数据？'),
           content: Text(
-            '迁移成功后，Good Day 将删除原位置中的任务、计划、目标、待办事件、每日记录、垃圾桶和设置文件。\n\n'
+            '迁移成功后，Good Day 将删除原位置中的应用数据、垃圾桶和设置文件。\n\n'
             '原位置：$_vaultPath\n\n新位置：$selectedPath',
           ),
           actions: [
