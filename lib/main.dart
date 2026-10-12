@@ -1399,15 +1399,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           duration: const Duration(milliseconds: 180),
                           alignment: Alignment.bottomLeft,
                           child: Padding(
-                            padding: const EdgeInsets.fromLTRB(6, 8, 6, 9),
+                            padding: const EdgeInsets.fromLTRB(5, 8, 5, 9),
                             child: Text(
                               period.label,
                               style: TextStyle(
-                                fontSize: _taskPeriod == period ? 24 : 13,
+                                fontSize: _taskPeriod == period ? 30 : 13,
                                 height: 1.15,
-                                fontWeight: _taskPeriod == period
-                                    ? FontWeight.w700
-                                    : FontWeight.w400,
+                                fontWeight: FontWeight.w400,
                                 color: _taskPeriod == period
                                     ? context.appColors.accent
                                     : context.appColors.muted,
@@ -1992,7 +1990,7 @@ class _ModeHeader extends StatelessWidget {
                   color: context.appColors.ink,
                   fontSize: 30,
                   height: 1.3,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w400,
                   letterSpacing: -0.6,
                 ),
               ),

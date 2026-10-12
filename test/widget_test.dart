@@ -424,6 +424,8 @@ void main() {
           await tester.tap(find.text('取消'));
           await tester.pumpAndSettle();
         }
+        await tester.tap(find.byKey(const Key('task-period-backlog')));
+        await inspect('18-backlog-title');
         await tester.tap(find.byKey(const Key('task-period-day')));
         await tester.pumpAndSettle();
       }
