@@ -11,6 +11,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'app_colors.dart';
 import 'app_appearance.dart';
+import 'desktop_window_surface.dart';
 import 'backup_page.dart';
 import 'data/safe_file.dart';
 import 'edit_safety.dart';
@@ -171,6 +172,7 @@ Future<void> _startApplication(List<String> arguments) async {
   await acrylic.Window.initialize();
   await windowManager.ensureInitialized();
   final desktopExperience = SystemDesktopExperience();
+  final windowSurface = DesktopWindowSurface();
   await desktopExperience.initialize(internalReview: internalReview);
   const options = WindowOptions(
     size: _windowSize,
@@ -187,6 +189,7 @@ Future<void> _startApplication(List<String> arguments) async {
     // Hidden title bars still reserve a native resize frame around the notes.
     // Frameless keeps resizing while making the transparent gaps border-free.
     await windowManager.setAsFrameless();
+    await windowManager.setHasShadow(false);
     await acrylic.Window.setEffect(
       effect: acrylic.WindowEffect.acrylic,
       color: Colors.white.withValues(alpha: 0.08),
@@ -194,33 +197,22 @@ Future<void> _startApplication(List<String> arguments) async {
     );
     Future<void> applyAppearance([InterfaceSize? requestedSize]) async {
       final settings = settingsController.settings;
+      await windowSurface.resize(
+        (requestedSize ?? settings.interfaceSize).scale,
+      );
       desktopExperience.interfaceScale = settings.interfaceSize.scale;
       desktopExperience.glassTransparency = settings.glassTransparency;
-      final scale = (requestedSize ?? settings.interfaceSize).scale;
-      // Preserve room for controls at 150%, rather than clipping their layout.
-      final minimum = Size(396 * math.max(1, scale), 500 * math.max(1, scale));
-      await windowManager.setMinimumSize(minimum);
-      final current = await windowManager.getSize();
-      if (current.width < minimum.width || current.height < minimum.height) {
-        final position = await windowManager.getPosition();
-        await windowManager.setSize(
-          Size(
-            math.max(current.width, minimum.width),
-            math.max(current.height, minimum.height),
-          ),
-        );
-        // Retain the right edge when a window near the screen edge grows.
-        await windowManager.setPosition(
-          Offset(
-            position.dx - math.max(0, minimum.width - current.width),
-            position.dy,
-          ),
-        );
-      }
     }
 
     settingsController.prepareInterfaceSize = applyAppearance;
-    await applyAppearance();
+    await windowSurface.resize(
+      settingsController.settings.interfaceSize.scale,
+      initial: true,
+    );
+    desktopExperience.interfaceScale =
+        settingsController.settings.interfaceSize.scale;
+    desktopExperience.glassTransparency =
+        settingsController.settings.glassTransparency;
     final appearanceOperations = OperationQueue();
     var lastSize = settingsController.settings.interfaceSize;
     settingsController.addListener(() {
@@ -236,7 +228,6 @@ Future<void> _startApplication(List<String> arguments) async {
         }),
       );
     });
-    await windowManager.setHasShadow(false);
     await windowManager.setAlignment(Alignment.topRight);
     final aligned = await windowManager.getPosition();
     await windowManager.setPosition(Offset(aligned.dx - 16, aligned.dy + 16));
@@ -250,6 +241,7 @@ Future<void> _startApplication(List<String> arguments) async {
       settingsController: settingsController,
       vaultLocationStore: vaultLocationStore,
       desktopExperience: desktopExperience,
+      windowSurface: windowSurface,
     ),
   );
 }
@@ -262,6 +254,7 @@ class GoodDayApp extends StatelessWidget {
     this.vaultLocationStore,
     this.desktopExperience,
     this.clock,
+    this.windowSurface,
   });
 
   final VaultRepository repository;
@@ -269,6 +262,9 @@ class GoodDayApp extends StatelessWidget {
   final VaultLocationStore? vaultLocationStore;
   final DesktopExperience? desktopExperience;
   final DateTime Function()? clock;
+  final DesktopWindowSurface? windowSurface;
+  static final _surfaceObservers =
+      <DesktopWindowSurface, WindowSurfaceObserver>{};
 
   @override
   Widget build(BuildContext context) {
@@ -281,6 +277,14 @@ class GoodDayApp extends StatelessWidget {
           transparency: settings.glassTransparency,
         );
         return MaterialApp(
+          navigatorObservers: windowSurface == null
+              ? const []
+              : [
+                  _surfaceObservers.putIfAbsent(
+                    windowSurface!,
+                    () => WindowSurfaceObserver(windowSurface!),
+                  ),
+                ],
           locale: const Locale('zh', 'CN'),
           supportedLocales: const [Locale('zh', 'CN')],
           localizationsDelegates: GlobalMaterialLocalizations.delegates,
@@ -409,6 +413,7 @@ class GoodDayApp extends StatelessWidget {
             vaultLocationStore: vaultLocationStore,
             desktopExperience: desktopExperience,
             clock: clock,
+            windowSurface: windowSurface,
           ),
         );
       },
@@ -424,6 +429,7 @@ class HomePage extends StatefulWidget {
     this.vaultLocationStore,
     this.desktopExperience,
     this.clock,
+    this.windowSurface,
   });
 
   final VaultRepository repository;
@@ -431,6 +437,7 @@ class HomePage extends StatefulWidget {
   final VaultLocationStore? vaultLocationStore;
   final DesktopExperience? desktopExperience;
   final DateTime Function()? clock;
+  final DesktopWindowSurface? windowSurface;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -1286,6 +1293,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final surface = widget.windowSurface;
+    final note = _view == _HomeView.history && _repository.usesReminderWorkflow
+        ? 2
+        : _view.index;
+    if (surface != null && surface.selectedNote != note) {
+      surface.selectedNote = note;
+      surface.noteCount = _repository.usesReminderWorkflow ? 3 : 4;
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => unawaited(surface.updateShape()),
+      );
+    }
     final completed = _visibleTasks.where((task) => task.isCompleted).length;
     return EditScope(
       coordinator: _edits,
@@ -1301,10 +1319,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
             Expanded(
               child: GlassSurface(
+                key: const Key('main-glass-surface'),
+                material: true,
                 child: Container(
                   key: const Key('main-paper'),
                   decoration: BoxDecoration(
-                    color: context.appColors.paper,
+                    color: Colors.transparent,
                     borderRadius: const BorderRadius.only(
                       topLeft: Radius.circular(12),
                       bottomLeft: Radius.circular(12),
@@ -4688,9 +4708,10 @@ class _SettingsPageState extends State<SettingsPage> {
       return Scaffold(
         backgroundColor: Colors.transparent,
         body: GlassSurface(
+          material: true,
           child: Container(
             decoration: BoxDecoration(
-              color: context.appColors.paper,
+              color: Colors.transparent,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: context.appColors.line),
             ),

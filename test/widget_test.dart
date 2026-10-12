@@ -153,13 +153,26 @@ void main() {
                     )
                     .decoration
                 as BoxDecoration;
+        final glass =
+            tester
+                    .widget<DecoratedBox>(
+                      find
+                          .descendant(
+                            of: find.byKey(const Key('main-glass-surface')),
+                            matching: find.byType(DecoratedBox),
+                          )
+                          .first,
+                    )
+                    .decoration
+                as BoxDecoration;
+        final paperColor = (glass.gradient! as LinearGradient).colors[1];
         final border = (box.border as Border).top.color;
         if (lastPaper != null) {
-          expect(box.color, isNot(lastPaper));
+          expect(paperColor, isNot(lastPaper));
           expect(note.color, isNot(lastNote));
           expect(border, isNot(lastBorder));
         }
-        lastPaper = box.color;
+        lastPaper = paperColor;
         lastNote = note.color;
         lastBorder = border;
         final label = tester.widget<Text>(

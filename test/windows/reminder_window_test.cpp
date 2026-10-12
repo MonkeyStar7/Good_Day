@@ -1,4 +1,5 @@
 #include "reminder_window.h"
+#include "window_surface.h"
 #include <dwmapi.h>
 #include <flutter/standard_method_codec.h>
 #include <fstream>
@@ -204,6 +205,42 @@ int main(int argc, char **argv) {
     Check(messenger.action == 5 && !IsWindowEnabled(GetDlgItem(popup, 104)),
           "keyboard snooze missing");
     messenger.Call("dismiss");
+    {
+      Messenger shape_messenger;
+      HWND shaped = CreateWindowW(L"STATIC", L"Good Day shape test", WS_POPUP,
+                                  0, 0, 700, 900, nullptr, nullptr,
+                                  GetModuleHandle(nullptr), nullptr);
+      Check(shaped != nullptr, "shape test window failed");
+      WindowSurface surface(&shape_messenger, shaped);
+      shape_messenger.Call("workArea");
+      for (double scale : {0.75, 1.0, 1.5}) {
+        shape_messenger.Call(
+            "shape",
+            {{flutter::EncodableValue("scale"), flutter::EncodableValue(scale)},
+             {flutter::EncodableValue("notesVisible"),
+              flutter::EncodableValue(true)},
+             {flutter::EncodableValue("selected"), flutter::EncodableValue(0)},
+             {flutter::EncodableValue("count"), flutter::EncodableValue(3)}});
+        HRGN region = CreateRectRgn(0, 0, 0, 0);
+        Check(GetWindowRgn(shaped, region) != ERROR, "window region missing");
+        const auto px = [scale](int value) {
+          return static_cast<int>(value * scale);
+        };
+        Check(!PtInRegion(region, px(20), px(40)), "transparent gap is filled");
+        Check(PtInRegion(region, px(20), px(110)), "active note is clipped");
+        Check(!PtInRegion(region, px(20), px(150)),
+              "gap between notes is filled");
+        Check(PtInRegion(region, px(100), px(150)), "main paper is clipped");
+        DeleteObject(region);
+      }
+      shape_messenger.Call("shape", {{flutter::EncodableValue("notesVisible"),
+                                      flutter::EncodableValue(false)}});
+      HRGN region = CreateRectRgn(0, 0, 0, 0);
+      Check(GetWindowRgn(shaped, region) != ERROR && PtInRegion(region, 30, 60),
+            "settings page should occupy the complete rounded window");
+      DeleteObject(region);
+      DestroyWindow(shaped);
+    }
     std::cout << "PASS: independent centered topmost popup, hidden tray owner, "
                  "acknowledgement, snooze, save retry and close protection\n";
   } catch (const std::exception &error) {

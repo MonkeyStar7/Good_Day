@@ -47,12 +47,12 @@ class AppColors {
       ? const Color(0xFF24282D)
       : _cloudYellow
       ? const Color(0xFF3F3A2D)
-      : Color.lerp(const Color(0xFF202020), accent, 0.52)!;
+      : Color.lerp(const Color(0xFF24282C), accent, 0.16)!;
   Color get muted => _white
       ? const Color(0xFF69727C)
       : _cloudYellow
       ? const Color(0xFF81765D)
-      : Color.lerp(const Color(0xFF787878), accent, 0.58)!;
+      : Color.lerp(const Color(0xFF59616A), accent, 0.18)!;
   Color get hover => accent.withValues(alpha: 0.09);
   Color note(int index) => _glass(
     _white

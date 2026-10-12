@@ -3,7 +3,8 @@ project(good_day_native_tests LANGUAGES CXX)
 get_filename_component(ROOT "../.." ABSOLUTE)
 set(WRAPPER "${ROOT}/windows/flutter/ephemeral/cpp_client_wrapper")
 add_executable(reminder_window_test reminder_window_test.cpp
-  "${ROOT}/windows/runner/reminder_window.cpp")
+  "${ROOT}/windows/runner/reminder_window.cpp"
+  "${ROOT}/windows/runner/window_surface.cpp")
 target_compile_features(reminder_window_test PRIVATE cxx_std_17)
 target_compile_options(reminder_window_test PRIVATE /W4 /WX /utf-8)
 target_compile_definitions(reminder_window_test PRIVATE UNICODE _UNICODE NOMINMAX)

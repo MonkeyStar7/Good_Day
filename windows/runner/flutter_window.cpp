@@ -26,6 +26,8 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  window_surface_ = std::make_unique<WindowSurface>(
+      flutter_controller_->engine()->messenger(), GetHandle());
   reminder_window_ = std::make_unique<ReminderWindow>(
       flutter_controller_->engine()->messenger(), GetHandle());
   lifecycle_channel_ =
@@ -45,6 +47,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  window_surface_ = nullptr;
   reminder_window_ = nullptr;
   lifecycle_channel_ = nullptr;
   if (flutter_controller_) {
@@ -58,6 +61,8 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (window_surface_ && (message == WM_SIZE || message == WM_DPICHANGED))
+    window_surface_->ResizeRegion();
   if (lifecycle_channel_) {
     if (message == WM_POWERBROADCAST &&
         (wparam == PBT_APMRESUMEAUTOMATIC || wparam == PBT_APMRESUMESUSPEND)) {

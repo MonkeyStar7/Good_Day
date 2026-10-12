@@ -9,6 +9,7 @@
 
 #include "reminder_window.h"
 #include "win32_window.h"
+#include "window_surface.h"
 
 // A window that does nothing but host a Flutter view.
 class FlutterWindow : public Win32Window {
@@ -28,6 +29,7 @@ private:
   // The project to run.
   flutter::DartProject project_;
   std::unique_ptr<ReminderWindow> reminder_window_;
+  std::unique_ptr<WindowSurface> window_surface_;
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
