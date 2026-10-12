@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
@@ -10,8 +11,11 @@ import '../models/good_day_plan.dart';
 import '../models/good_day_task.dart';
 import '../models/good_day_event.dart';
 import '../models/task_series.dart';
+import '../models/reminder_item.dart';
 
-enum TrashItemType { task, plan, goal, event }
+part 'reminder_repository.dart';
+
+enum TrashItemType { task, plan, goal, event, reminder }
 
 class TrashItem {
   const TrashItem({
@@ -40,6 +44,9 @@ class VaultRepository {
   final OperationQueue _operations = OperationQueue();
   final Set<String> _unreadableFiles = {};
   RandomAccessFile? _session;
+  bool usesReminderWorkflow = false;
+  final _reminderChanges = StreamController<void>.broadcast();
+  Stream<void> get reminderChanges => _reminderChanges.stream;
 
   Future<void> acquireSession() async {
     if (_session != null) return;
@@ -80,6 +87,7 @@ class VaultRepository {
   Future<void> restoreBackup(String id) => _operations.run(() async {
     await backups.restore(id);
     _unreadableFiles.clear();
+    _reminderChanges.add(null);
   });
   Future<VaultBackup> createBackup() => _operations.run(backups.createManual);
 
@@ -117,6 +125,8 @@ class VaultRepository {
   Directory get eventsDirectory => _childDirectory(vaultDirectory, 'Events');
   Directory get taskSeriesDirectory =>
       _childDirectory(vaultDirectory, 'TaskSeries');
+  Directory get remindersDirectory =>
+      _childDirectory(vaultDirectory, 'Reminders');
   Directory get archivedEventsDirectory =>
       _childDirectory(archiveDirectory, 'Events');
 
@@ -136,6 +146,7 @@ class VaultRepository {
     await eventsDirectory.create(recursive: true);
     await taskSeriesDirectory.create(recursive: true);
     await archivedEventsDirectory.create(recursive: true);
+    await remindersDirectory.create(recursive: true);
     await backups.recoverPendingRestore();
   }
 
@@ -148,6 +159,7 @@ class VaultRepository {
       plansDirectory,
       eventsDirectory,
       taskSeriesDirectory,
+      remindersDirectory,
     ]) {
       if (!await directory.exists()) continue;
       await for (final entity in directory.list()) {
@@ -184,6 +196,7 @@ class VaultRepository {
       'Plans',
       'Events',
       'TaskSeries',
+      'Reminders',
     ]) {
       await _copyDirectory(
         _childDirectory(vaultDirectory, name),
@@ -211,6 +224,7 @@ class VaultRepository {
       plansDirectory,
       eventsDirectory,
       taskSeriesDirectory,
+      remindersDirectory,
     ]) {
       if (await directory.exists()) await directory.delete(recursive: true);
     }
@@ -427,7 +441,7 @@ class VaultRepository {
         final now = _clock();
         final updated = task.setCompleted(completed, now);
         await _writeTask(updated);
-        if (completed && updated.seriesId != null) {
+        if (completed && updated.seriesId != null && !usesReminderWorkflow) {
           final seriesFile = _seriesFile(updated.seriesId!);
           if (await seriesFile.exists()) {
             final series = TaskSeries.fromMarkdown(
@@ -476,6 +490,9 @@ class VaultRepository {
   }
 
   Future<void> _ensureRepeatingTasks() async {
+    if (usesReminderWorkflow) {
+      return; // Old tasks remain historical, not active.
+    }
     final now = _clock();
     final today = DateTime(now.year, now.month, now.day);
     for (final series in await _readTaskSeries()) {
@@ -1206,6 +1223,18 @@ class VaultRepository {
     }
     await _appendArchivedPlans(items);
     await _appendArchivedGoals(items);
+    for (final reminder in await _readReminderItems()) {
+      if (reminder.deletedAt != null) {
+        items.add(
+          TrashItem(
+            type: TrashItemType.reminder,
+            id: reminder.id,
+            title: reminder.title,
+            deletedAt: reminder.deletedAt!,
+          ),
+        );
+      }
+    }
     await for (final file in archivedEventsDirectory.list(followLinks: false)) {
       if (file is! File || !file.path.toLowerCase().endsWith('.md')) continue;
       try {
@@ -1257,6 +1286,17 @@ class VaultRepository {
         await SafeFile.write(_eventFile(item.id), restored.toMarkdown());
         await source.delete();
         return;
+      case TrashItemType.reminder:
+        final reminder = await _readReminderItem(item.id);
+        await _writeReminderItem(
+          reminder.patch({
+            'deletedAt': null,
+            'enabled': false,
+            'pendingPhase': null,
+            'snoozedUntil': null,
+          }),
+        );
+        return;
     }
   });
 
@@ -1296,6 +1336,12 @@ class VaultRepository {
     await _deleteContents(archivedPlansDirectory);
     await _deleteContents(archivedGoalsDirectory);
     await _deleteContents(archivedEventsDirectory);
+    for (final reminder in await _readReminderItems()) {
+      if (reminder.deletedAt != null) {
+        await _taskFile(remindersDirectory, reminder.id).delete();
+      }
+    }
+    _reminderChanges.add(null);
     await _syncDaily(await _readTasks(tasksDirectory), _clock());
   });
 

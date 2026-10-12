@@ -1,0 +1,351 @@
+import 'dart:io';
+import 'dart:ui' as ui;
+
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:good_day/data/vault_repository.dart';
+import 'package:good_day/main.dart';
+import 'package:good_day/edit_safety.dart';
+import 'package:good_day/models/reminder_item.dart';
+import 'package:good_day/settings/app_settings.dart';
+
+Future<void> settle(WidgetTester tester, VaultRepository repository) async {
+  for (var attempt = 0; attempt < 60; attempt++) {
+    await Future.sync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    });
+    await tester.pump();
+  }
+  await tester.pumpAndSettle();
+}
+
+void main() {
+  late Directory vault;
+  late VaultRepository repository;
+  final now = DateTime(2026, 10, 12, 8);
+  setUp(() async {
+    vault = await Directory.systemTemp.createTemp('goodday_redesign_ui_');
+    repository = VaultRepository(vault, clock: () => now)
+      ..usesReminderWorkflow = true;
+    await repository.initialize();
+  });
+  tearDown(() async => vault.delete(recursive: true));
+
+  for (final width in [400.0, 340.0]) {
+    testWidgets('simplified reminder workflow renders and saves at $width', (
+      tester,
+    ) async {
+      await tester.runAsync(() async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = Size(width, 720);
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+        const capture = bool.fromEnvironment('CAPTURE_UI');
+        if (capture) {
+          await Future.sync(() async {
+            final inter = FontLoader('Inter')
+              ..addFont(rootBundle.load('assets/fonts/InterVariable.ttf'));
+            await inter.load();
+            for (final entry in {
+              'Microsoft YaHei UI': 'C:/Windows/Fonts/msyh.ttc',
+              'MaterialIcons': 'E:/Dev/flutter/bin/cache/artifacts/material_fonts/materialicons-regular.otf',
+            }.entries) {
+              final file = File(entry.value);
+              if (await file.exists()) {
+                final loader = FontLoader(entry.key)
+                  ..addFont(
+                    file.readAsBytes().then(
+                      (bytes) => ByteData.sublistView(bytes),
+                    ),
+                  );
+                await loader.load();
+              }
+            }
+          });
+        }
+        await Future.sync(() async {
+          await repository.addTask('旧的今日任务');
+          await repository.addPlan(
+            title: '旧的阶段计划',
+            deadline: DateTime(2026, 12, 1),
+          );
+          await repository.addGoal(
+            name: '考研',
+            description: '原目标保留',
+            colorValue: 0xFF789A7A,
+          );
+        });
+        final boundary = GlobalKey();
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: boundary,
+            child: GoodDayApp(
+              repository: repository,
+              clock: () => now,
+              settingsController: AppSettingsController.inMemory(),
+            ),
+          ),
+        );
+        await settle(tester, repository);
+        Future<void> inspect(String name) async {
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull, reason: name);
+          if (capture) {
+            await Future.sync(() async {
+              final image =
+                  await (boundary.currentContext!.findRenderObject()!
+                          as RenderRepaintBoundary)
+                      .toImage(pixelRatio: 2);
+              final bytes = await image.toByteData(
+                format: ui.ImageByteFormat.png,
+              );
+              final directory = Directory('build/redesign-ui-preview')
+                ..createSync(recursive: true);
+              await File('${directory.path}/${width.toInt()}-$name.png')
+                  .writeAsBytes(bytes!.buffer.asUint8List());
+              image.dispose();
+            });
+          }
+        }
+
+        expect(find.byKey(const Key('today-heading')), findsOneWidget);
+        expect(find.text('上午'), findsOneWidget);
+        expect(find.text('下午'), findsOneWidget);
+        expect(find.text('今晚'), findsOneWidget);
+        expect(find.byKey(const Key('task-period-week')), findsNothing);
+        expect(find.text('旧的今日任务'), findsNothing);
+        await inspect('01-empty-today');
+        await tester.tap(find.byKey(const Key('add-reminder-morning')));
+        await settle(tester, repository);
+        expect(find.text('09:00'), findsOneWidget);
+        expect(find.text('2026年10月12日'), findsOneWidget);
+        await tester.enterText(find.byKey(const Key('reminder-title')), '复习数学');
+        await tester.enterText(
+          find.byKey(const Key('reminder-notes')),
+          '先整理错题',
+        );
+        await tester.ensureVisible(find.byKey(const Key('reminder-time')));
+        await tester.tap(find.byKey(const Key('reminder-time')));
+        await tester.pumpAndSettle();
+        expect(find.byType(CupertinoPicker), findsNWidgets(2));
+        await inspect('02-date-time-editor');
+        await tester.ensureVisible(find.byKey(const Key('early-reminder')));
+        await tester.tap(find.byKey(const Key('early-reminder')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('自定义').last);
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const Key('custom-lead-amount')),
+          '20',
+        );
+        await inspect('03-custom-early');
+        await tester.ensureVisible(find.byKey(const Key('save-reminder')));
+        await tester.tap(find.byKey(const Key('save-reminder')));
+        await settle(tester, repository);
+        final records = await Future.sync(() => repository.loadReminders());
+        expect(records, hasLength(1));
+        expect(records.single.dueAt, DateTime(2026, 10, 12, 9));
+        expect(records.single.early!.amount, 20);
+        expect(find.text('复习数学'), findsOneWidget);
+        await inspect('04-filled-today');
+        await tester.tap(find.byKey(const Key('nav-plans')));
+        await settle(tester, repository);
+        expect(find.byKey(const Key('scheduled-heading')), findsOneWidget);
+        expect(find.text('今天 · 10月12日'), findsOneWidget);
+        expect(find.text('明天 · 10月13日'), findsOneWidget);
+        expect(find.text('后天 · 10月14日'), findsOneWidget);
+        expect(find.text('复习数学'), findsOneWidget);
+        expect(find.text('旧的阶段计划'), findsNothing);
+        await inspect('05-scheduled');
+        await tester.ensureVisible(
+          find.byKey(const Key('schedule-month-2026-11')),
+        );
+        await tester.tap(find.byKey(const Key('schedule-month-2026-11')));
+        await tester.pumpAndSettle();
+        await inspect('06-expanded-month');
+        await tester.tap(find.byKey(const Key('nav-history')));
+        await settle(tester, repository);
+        await tester.tap(find.text('未完成'));
+        await tester.pumpAndSettle();
+        expect(find.text('旧的今日任务'), findsOneWidget);
+        expect(find.text('旧的阶段计划'), findsOneWidget);
+        expect(find.text('复习数学'), findsOneWidget);
+        await inspect('07-preserved-history');
+        await tester.tap(find.byKey(const Key('nav-goals')));
+        await settle(tester, repository);
+        expect(find.text('考研'), findsOneWidget);
+        await inspect('08-goals');
+        await tester.tap(find.byKey(const Key('nav-today')));
+        await settle(tester, repository);
+        await tester.tap(find.byKey(const Key('add-reminder-afternoon')));
+        await tester.pumpAndSettle();
+        expect(find.text('15:00'), findsOneWidget);
+        await tester.ensureVisible(find.text('取消'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('取消'));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('reminder-editor')), findsNothing);
+        await tester.ensureVisible(
+          find.byKey(const Key('add-reminder-tonight')),
+        );
+        await tester.tap(find.byKey(const Key('add-reminder-tonight')));
+        await tester.pumpAndSettle();
+        expect(find.text('20:00'), findsOneWidget);
+        await tester.ensureVisible(find.text('取消'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('取消'));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('reminder-editor')), findsNothing);
+        await tester.pumpWidget(const SizedBox());
+        await settle(tester, repository);
+      });
+    }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+  }
+  testWidgets('new reminder is saved before navigating away from the editor', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      await tester.pumpWidget(
+        GoodDayApp(
+          repository: repository,
+          clock: () => now,
+          settingsController: AppSettingsController.inMemory(),
+        ),
+      );
+      await settle(tester, repository);
+      await tester.tap(find.byKey(const Key('add-reminder-morning')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('reminder-title')), '离开也要保存');
+      await tester.tap(find.byKey(const Key('nav-plans')));
+      await settle(tester, repository);
+      expect(find.byKey(const Key('scheduled-heading')), findsOneWidget);
+      final records = await Future.sync(() => repository.loadReminders());
+      expect(records.single.title, '离开也要保存');
+      await tester.pumpWidget(const SizedBox());
+      await settle(tester, repository);
+    });
+  });
+
+  testWidgets(
+    'an untouched empty editor closes when the tray save guard flushes',
+    (tester) async {
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          GoodDayApp(
+            repository: repository,
+            clock: () => now,
+            settingsController: AppSettingsController.inMemory(),
+          ),
+        );
+        await settle(tester, repository);
+        await tester.tap(find.byKey(const Key('add-reminder-morning')));
+        await tester.pumpAndSettle();
+        final scope = EditScope.of(
+          tester.element(find.byKey(const Key('reminder-editor'))),
+        )!;
+        expect(await scope.flush(), isTrue);
+        await settle(tester, repository);
+        expect(find.byKey(const Key('reminder-editor')), findsNothing);
+        expect(await repository.loadReminders(), isEmpty);
+        await tester.pumpWidget(const SizedBox());
+        await settle(tester, repository);
+      });
+    },
+  );
+
+  testWidgets(
+    'changing the date moves the same reminder into tomorrow without duplication',
+    (tester) async {
+      await tester.runAsync(() async {
+        final item = await repository.saveReminder(
+          title: '调整日期',
+          notes: '',
+          dueAt: DateTime(2026, 10, 12, 9),
+          rule: ReminderRule.presets['不重复']!,
+          enabled: false,
+        );
+        await tester.pumpWidget(
+          GoodDayApp(
+            repository: repository,
+            clock: () => now,
+            settingsController: AppSettingsController.inMemory(),
+          ),
+        );
+        await settle(tester, repository);
+        await tester.tap(find.byKey(Key('reminder-row-${item.id}')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('reminder-date')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('13').last);
+        await tester.tap(find.text('确定').last);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byKey(const Key('save-reminder')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('save-reminder')));
+        await settle(tester, repository);
+        expect(find.text('调整日期'), findsNothing);
+        final records = await repository.loadReminders();
+        expect(records, hasLength(1));
+        expect(records.single.id, item.id);
+        expect(records.single.dueAt, DateTime(2026, 10, 13, 9));
+        await tester.tap(find.byKey(const Key('nav-plans')));
+        await settle(tester, repository);
+        expect(find.text('调整日期'), findsOneWidget);
+        await tester.pumpWidget(const SizedBox());
+        await settle(tester, repository);
+      });
+    },
+  );
+
+  testWidgets(
+    'on the next day unfinished reminders stay overdue and completions stay in history',
+    (tester) async {
+      await tester.runAsync(() async {
+        var time = now;
+        final store = VaultRepository(vault, clock: () => time)
+          ..usesReminderWorkflow = true;
+        await store.saveReminder(
+          title: '昨天没完成',
+          notes: '',
+          dueAt: DateTime(2026, 10, 12, 9),
+          rule: ReminderRule.presets['不重复']!,
+          enabled: false,
+        );
+        final done = await store.saveReminder(
+          title: '昨天已完成',
+          notes: '',
+          dueAt: DateTime(2026, 10, 12, 15),
+          rule: ReminderRule.presets['不重复']!,
+          enabled: false,
+        );
+        await store.completeReminder(done, true);
+        await tester.pumpWidget(
+          GoodDayApp(
+            repository: store,
+            clock: () => time,
+            settingsController: AppSettingsController.inMemory(),
+          ),
+        );
+        await settle(tester, store);
+        time = DateTime(2026, 10, 13, 8);
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await settle(tester, store);
+        expect(find.text('2026年10月13日 · 周二'), findsOneWidget);
+        expect(find.text('已过期'), findsOneWidget);
+        expect(find.text('昨天没完成'), findsOneWidget);
+        expect(find.text('昨天已完成'), findsNothing);
+        await tester.tap(find.byKey(const Key('nav-history')));
+        await settle(tester, store);
+        expect(find.text('昨天已完成'), findsOneWidget);
+        await tester.pumpWidget(const SizedBox());
+        await settle(tester, store);
+      });
+    },
+  );
+}

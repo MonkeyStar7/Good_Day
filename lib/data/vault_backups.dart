@@ -34,6 +34,7 @@ class VaultBackups {
     'Goals',
     'Events',
     'TaskSeries',
+    'Reminders',
     'Daily',
     'Archive',
   ];
@@ -148,8 +149,15 @@ class VaultBackups {
 
   Future<VaultBackup> _create(String kind) async {
     final now = _clock();
+    // Keep creation order monotonic even after correcting the system clock.
+    // Otherwise retention could immediately prune the new safety snapshot.
+    var stamp = now.microsecondsSinceEpoch;
+    for (final backup in await list()) {
+      final previous = int.tryParse(backup.id.split('-').first);
+      if (previous != null && previous >= stamp) stamp = previous + 1;
+    }
     final id =
-        '${now.microsecondsSinceEpoch.toString().padLeft(20, '0')}-${(_sequence++).toString().padLeft(6, '0')}';
+        '${stamp.toString().padLeft(20, '0')}-${(_sequence++).toString().padLeft(6, '0')}';
     final destination = Directory(
       '${directory.path}${Platform.pathSeparator}$id',
     );

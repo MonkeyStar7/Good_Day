@@ -31,6 +31,44 @@ class EventReminderService {
     try {
       final store = repository();
       final now = clock();
+      if (store.usesReminderWorkflow) {
+        for (final item in await store.loadReminders()) {
+          if (item.phaseDue(now) == null) continue;
+          final claimed = await store.prepareReminder(item.id, now);
+          if (claimed == null ||
+              _disposed ||
+              !canPresent() ||
+              !identical(store, repository())) {
+            return;
+          }
+          final phase = claimed.pendingPhase!;
+          final occurrence = claimed.phaseTime(phase);
+          final event = GoodDayEvent(
+            id: claimed.id,
+            title: claimed.title,
+            notes: claimed.notes,
+            startsAt: claimed.dueAt,
+            reminderMinutes: phase == 'early'
+                ? claimed.dueAt.difference(occurrence).inMinutes
+                : 0,
+          );
+          await present(event, occurrence, (snooze) async {
+            await store.resolveReminder(
+              claimed.id,
+              phase,
+              snoozeUntil: snooze == null ? null : clock().add(snooze),
+            );
+            try {
+              await onChanged();
+            } catch (error) {
+              if (!_disposed) onError(error);
+            }
+          });
+          break;
+        }
+        _lastError = null;
+        return;
+      }
       final events = [...await store.loadEvents()];
       final taskReminders = <String, String>{};
       final tasks = await store.loadTaskReminders();

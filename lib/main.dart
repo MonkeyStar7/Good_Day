@@ -17,6 +17,8 @@ import 'events_page.dart';
 import 'task_browser_page.dart';
 import 'task_inline_options.dart';
 import 'event_reminder_service.dart';
+import 'reminder_pages.dart';
+import 'reminder_history_page.dart';
 import 'data/vault_repository.dart';
 import 'desktop_experience.dart';
 import 'models/good_day_goal.dart';
@@ -127,6 +129,7 @@ Future<void> _startApplication(List<String> arguments) async {
               )
             : await VaultRepository.createDefault())
       : VaultRepository(savedVault);
+  repository.usesReminderWorkflow = true;
   late AppSettingsController settingsController;
   try {
     await repository.acquireSession();
@@ -346,6 +349,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Timer? _reminderTimer;
   bool _eventEditorOpen = false;
   bool _taskEditorOpen = false;
+  bool _reminderEditorOpen = false;
   bool _reminderOpen = false;
   late VaultRepository _repository;
   _HomeView _view = _HomeView.today;
@@ -463,6 +467,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           !_transitioning &&
           !_eventEditorOpen &&
           !_taskEditorOpen &&
+          !_reminderEditorOpen &&
           (ModalRoute.of(context)?.isCurrent ?? true),
       present: _presentReminder,
       onChanged: _refreshReminderState,
@@ -1067,6 +1072,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (currentPath == targetPath) return '已经在使用这个文件夹';
 
     final nextRepository = VaultRepository(targetDirectory);
+    nextRepository.usesReminderWorkflow = _repository.usesReminderWorkflow;
     await nextRepository.acquireSession();
     late bool containsExistingData;
     final previousSettingsStore = widget.settingsController.store;
@@ -1153,7 +1159,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               widget.desktopExperience?.isLaunchAtStartupEnabled,
           onLaunchAtStartupChanged:
               widget.desktopExperience?.setLaunchAtStartupEnabled,
-          onOpenLegacyReminders: _events.isEmpty ? null : _openLegacyReminders,
+          onOpenLegacyReminders:
+              _repository.usesReminderWorkflow || _events.isEmpty
+              ? null
+              : _openLegacyReminders,
         ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return FadeTransition(opacity: animation, child: child);
@@ -1173,7 +1182,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         body: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _NoteNavigation(mode: _view, onSelect: _selectView),
+            _NoteNavigation(
+              mode: _view,
+              onSelect: _selectView,
+              reminderWorkflow: _repository.usesReminderWorkflow,
+            ),
             Expanded(
               child: Container(
                 key: const Key('main-paper'),
@@ -1207,7 +1220,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                if (_view != _HomeView.today) ...[
+                                if (_view != _HomeView.today &&
+                                    !(_repository.usesReminderWorkflow &&
+                                        _view == _HomeView.plans)) ...[
                                   _ModeHeader(
                                     mode: _view,
                                     date: _displayDate,
@@ -1266,6 +1281,30 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
     }
     if (_error != null) return _ErrorState(message: _error!, onRetry: _load);
+    if (_repository.usesReminderWorkflow) {
+      if (_view == _HomeView.today || _view == _HomeView.plans) {
+        return Material(
+          type: MaterialType.transparency,
+          child: ReminderAgendaPage(
+            key: ValueKey('${_repository.vaultDirectory.path}-${_view.name}'),
+            repository: _repository,
+            date: _displayDate,
+            clock: _now,
+            goals: _goals,
+            scheduled: _view == _HomeView.plans,
+            onEditingChanged: (editing) => _reminderEditorOpen = editing,
+          ),
+        );
+      }
+      if (_view == _HomeView.history) {
+        return ReminderHistoryPage(
+          key: ValueKey(_repository.vaultDirectory.path),
+          repository: _repository,
+          goals: _goals,
+          clock: _now,
+        );
+      }
+    }
     return switch (_view) {
       _HomeView.today => _buildTaskArea(),
       _HomeView.plans => _buildPlanArea(),
@@ -1835,9 +1874,14 @@ class _GearPainter extends CustomPainter {
 }
 
 class _NoteNavigation extends StatelessWidget {
-  const _NoteNavigation({required this.mode, required this.onSelect});
+  const _NoteNavigation({
+    required this.mode,
+    required this.onSelect,
+    this.reminderWorkflow = false,
+  });
   final _HomeView mode;
   final ValueChanged<_HomeView> onSelect;
+  final bool reminderWorkflow;
   static const _icons = [
     Icons.checklist_outlined,
     Icons.event_note_outlined,
@@ -1913,7 +1957,9 @@ class _NoteNavigation extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  _ModeHeader.label(view),
+                                  reminderWorkflow && view == _HomeView.today
+                                      ? '今天'
+                                      : _ModeHeader.label(view),
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: mode == view
@@ -4948,6 +4994,7 @@ class _TrashPageState extends State<TrashPage> {
     TrashItemType.plan => '计划',
     TrashItemType.goal => '目标',
     TrashItemType.event => '待办事件',
+    TrashItemType.reminder => '提醒事项',
   };
 
   IconData _typeIcon(TrashItemType type) => switch (type) {
@@ -4955,6 +5002,7 @@ class _TrashPageState extends State<TrashPage> {
     TrashItemType.plan => Icons.calendar_today_outlined,
     TrashItemType.goal => Icons.flag_outlined,
     TrashItemType.event => Icons.notifications_outlined,
+    TrashItemType.reminder => Icons.notifications_active_outlined,
   };
 
   @override

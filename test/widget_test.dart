@@ -1575,6 +1575,7 @@ class _MemoryRepository extends VaultRepository {
         goals.add(trashedGoals.remove(item.id)!);
         return;
       case TrashItemType.event:
+      case TrashItemType.reminder:
         return;
     }
   }

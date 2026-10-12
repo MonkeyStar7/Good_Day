@@ -7,6 +7,47 @@ import 'app_colors.dart';
 import 'models/good_day_task.dart';
 import 'models/good_day_event.dart';
 
+class ReminderClockWheels extends StatelessWidget {
+  const ReminderClockWheels({
+    super.key,
+    required this.value,
+    required this.onChanged,
+    this.enabled = true,
+  });
+  final DateTime value;
+  final ValueChanged<DateTime> onChanged;
+  final bool enabled;
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Expanded(
+        child: _NumberWheel(
+          name: '时',
+          count: 24,
+          selected: value.hour,
+          enabled: enabled,
+          label: (hour) => hour.toString().padLeft(2, '0'),
+          onChanged: (hour) => onChanged(
+            DateTime(value.year, value.month, value.day, hour, value.minute),
+          ),
+        ),
+      ),
+      Expanded(
+        child: _NumberWheel(
+          name: '分',
+          count: 60,
+          selected: value.minute,
+          enabled: enabled,
+          label: (minute) => minute.toString().padLeft(2, '0'),
+          onChanged: (minute) => onChanged(
+            DateTime(value.year, value.month, value.day, value.hour, minute),
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
 class TaskInlineOptions extends StatefulWidget {
   const TaskInlineOptions({
     super.key,

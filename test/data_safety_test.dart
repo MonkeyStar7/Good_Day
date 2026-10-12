@@ -141,6 +141,28 @@ void main() {
     );
   });
 
+  test('clock correction cannot prune a newly created backup or restore safety copy', () async {
+    final task = await repository.addTask('原始');
+    final originalTime = now;
+    for (var index = 0; index < 8; index++) {
+      now = now.add(const Duration(days: 1));
+      await repository.createBackup();
+    }
+    now = originalTime;
+    final selected = await repository.createBackup();
+    expect((await repository.backups.list()).first.id, selected.id);
+    expect(
+      await File(
+        '${repository.backups.directory.path}/${selected.id}/manifest.json',
+      ).exists(),
+      isTrue,
+    );
+    await repository.updateTaskDetails(task, title: '修改后', notes: '');
+    await repository.restoreBackup(selected.id);
+    expect((await repository.loadTasks()).single.title, '原始');
+    expect(await repository.backups.list(), hasLength(7));
+  });
+
   test(
     'missing snapshot files abort restoration without changing current data',
     () async {
