@@ -21,6 +21,7 @@ import 'reminder_pages.dart';
 import 'reminder_history_page.dart';
 import 'data/vault_repository.dart';
 import 'desktop_experience.dart';
+import 'installer_bootstrap.dart';
 import 'models/good_day_goal.dart';
 import 'models/good_day_plan.dart';
 import 'models/good_day_task.dart';
@@ -47,6 +48,29 @@ const _goalPalette = <Color>[
 enum _HomeView { today, plans, goals, history }
 
 Future<void> main(List<String> arguments) async {
+  final setupPath = arguments
+      .where((argument) => argument.startsWith('--setup-vault='))
+      .firstOrNull;
+  if (setupPath != null) {
+    WidgetsFlutterBinding.ensureInitialized();
+    try {
+      final setupConfig = arguments
+          .where((argument) => argument.startsWith('--setup-config='))
+          .firstOrNull;
+      final store = setupConfig == null
+          ? await VaultLocationStore.create()
+          : VaultLocationStore(
+              Directory(setupConfig.substring('--setup-config='.length)),
+            );
+      await configureInstallerVault(
+        Directory(setupPath.substring('--setup-vault='.length)),
+        store,
+      );
+      exit(0);
+    } catch (_) {
+      exit(2);
+    }
+  }
   try {
     await _startApplication(arguments);
   } catch (error) {

@@ -181,7 +181,6 @@ bool ReminderWindow::Show(const flutter::EncodableMap &data) {
   if (date_.empty())
     date_ = time_.length() > 6 ? time_.substr(0, time_.length() - 6) : time_;
   notes_ = Text(data, "notes");
-  timing_ = Text(data, "timing");
   error_.clear();
   saving_ = false;
   WNDCLASSW window_class{};
@@ -390,11 +389,9 @@ void ReminderWindow::Paint() {
           Mix(accent_rgb_, 0.16f));
     Write(graphics, clock_, {px(48), px(208), px(116), px(44)}, px(30), kAccent,
           true, false, L"Segoe UI");
-    Write(graphics, date_, {px(178), px(206), right - px(226), px(22)}, px(13),
+    Write(graphics, date_, {px(178), px(220), right - px(226), px(22)}, px(13),
           kInk);
-    Write(graphics, timing_, {px(178), px(234), right - px(226), px(24)},
-          px(12), kMuted);
-    Write(graphics, notes_.empty() ? L"到时间了，先把这件事完成吧。" : notes_,
+    Write(graphics, notes_,
           {px(32), px(286), right - px(64), std::max(px(20), bottom - px(408))},
           px(15), kMuted);
     if (!error_.empty())

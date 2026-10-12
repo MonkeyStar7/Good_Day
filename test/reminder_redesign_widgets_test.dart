@@ -169,6 +169,7 @@ void main() {
               widget.key.toString().contains('subtask-title-'),
         );
         await tester.enterText(subtaskInput, '第一套试卷');
+        await inspect('00-inline-editor');
         await openReminderOptions(tester);
         expect(find.text('09:00'), findsOneWidget);
         expect(find.text('2026年10月12日'), findsOneWidget);

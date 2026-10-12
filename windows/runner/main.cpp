@@ -51,6 +51,18 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     ::CloseHandle(instance_mutex);
     return EXIT_SUCCESS;
   }
+  // The installer can detect this exact executable without terminating drafts.
+  uint64_t setup_hash = 0;
+  for (DWORD i = 0; i < length; ++i) {
+    setup_hash = (setup_hash * 31 + std::towlower(executable[i])) % 1000000007;
+  }
+  const std::wstring setup_mutex_name =
+      L"Local\\GoodDay.Setup." + std::to_wstring(setup_hash);
+  HANDLE setup_mutex = ::CreateMutexW(nullptr, FALSE, setup_mutex_name.c_str());
+  if (setup_mutex == nullptr) {
+    ::CloseHandle(instance_mutex);
+    return EXIT_FAILURE;
+  }
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {
@@ -71,6 +83,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
   if (!window.Create(L"Good Day", origin, size)) {
+    ::CloseHandle(setup_mutex);
     ::CloseHandle(instance_mutex);
     ::CoUninitialize();
     return EXIT_FAILURE;
@@ -92,6 +105,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
 
   ::CoUninitialize();
+  ::CloseHandle(setup_mutex);
   ::CloseHandle(instance_mutex);
   return EXIT_SUCCESS;
 }

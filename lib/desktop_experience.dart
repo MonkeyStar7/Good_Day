@@ -168,11 +168,6 @@ class SystemDesktopExperience extends DesktopExperience
         'clock':
             '${occurrence.hour.toString().padLeft(2, '0')}:${occurrence.minute.toString().padLeft(2, '0')}',
         'notes': event.notes,
-        'timing': now.isAfter(occurrence)
-            ? '这是错过的提醒，现在补提醒你。'
-            : occurrence.isAfter(now)
-            ? '这是提前提醒，请准备好。'
-            : '现在该做这件事了。',
       });
       await finished.future;
       return true;

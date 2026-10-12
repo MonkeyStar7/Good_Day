@@ -30,7 +30,7 @@ private:
   int accent_rgb_ = 0x365D46;
   bool saving_ = false;
   bool owner_enabled_ = true;
-  std::wstring title_, time_, date_, clock_, notes_, timing_, error_;
+  std::wstring title_, time_, date_, clock_, notes_, error_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> channel_;
 };
 #endif

@@ -1143,135 +1143,154 @@ class ReminderEditorState extends State<ReminderEditor>
                   ),
               ],
             ),
-            TextField(
-              key: const Key('reminder-notes'),
-              controller: _notes,
-              enabled: !_busy,
-              decoration: const InputDecoration(
-                hintText: '备注',
-                border: InputBorder.none,
-                isDense: true,
-              ),
-              maxLines: null,
-              style: const TextStyle(fontSize: 12),
-            ),
-            const SizedBox(height: 8),
-            if (_expanded) ...[
-              const SizedBox(height: 8),
-              for (var index = 0; index < _subtasks.length; index++)
-                Row(
-                  key: Key('edit-subtask-${_subtasks[index].id}'),
-                  children: [
-                    Checkbox(
-                      value: _subtasks[index].isCompleted,
-                      onChanged: _busy
-                          ? null
-                          : (value) => _editSubtask(index, completed: value),
+            Padding(
+              padding: const EdgeInsets.only(left: 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    key: const Key('reminder-notes'),
+                    controller: _notes,
+                    enabled: !_busy,
+                    decoration: const InputDecoration(
+                      hintText: '备注',
+                      border: InputBorder.none,
+                      isDense: true,
                     ),
-                    Expanded(
-                      child: TextFormField(
-                        key: Key('subtask-title-${_subtasks[index].id}'),
-                        initialValue: _subtasks[index].title,
-                        enabled: !_busy,
-                        style: const TextStyle(fontSize: 12),
-                        decoration: const InputDecoration(
-                          hintText: '子任务',
-                          border: InputBorder.none,
-                          isDense: true,
-                        ),
-                        onChanged: (value) => _editSubtask(index, title: value),
+                    maxLines: null,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  const SizedBox(height: 8),
+                  if (_expanded) ...[
+                    const SizedBox(height: 8),
+                    for (var index = 0; index < _subtasks.length; index++)
+                      Row(
+                        key: Key('edit-subtask-${_subtasks[index].id}'),
+                        children: [
+                          Checkbox(
+                            value: _subtasks[index].isCompleted,
+                            onChanged: _busy
+                                ? null
+                                : (value) =>
+                                      _editSubtask(index, completed: value),
+                          ),
+                          Expanded(
+                            child: TextFormField(
+                              key: Key('subtask-title-${_subtasks[index].id}'),
+                              initialValue: _subtasks[index].title,
+                              enabled: !_busy,
+                              style: const TextStyle(fontSize: 12),
+                              decoration: const InputDecoration(
+                                hintText: '子任务',
+                                border: InputBorder.none,
+                                isDense: true,
+                              ),
+                              onChanged: (value) =>
+                                  _editSubtask(index, title: value),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: '删除子任务',
+                            icon: const Icon(Icons.close, size: 15),
+                            onPressed: _busy
+                                ? null
+                                : () => _detail(() {
+                                    _subtasksChanged = true;
+                                    _subtasks.removeAt(index);
+                                  }),
+                          ),
+                        ],
                       ),
-                    ),
-                    IconButton(
-                      tooltip: '删除子任务',
-                      icon: const Icon(Icons.close, size: 15),
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        alignment: Alignment.centerLeft,
+                        padding: EdgeInsets.zero,
+                      ),
+                      key: const Key('add-reminder-subtask'),
                       onPressed: _busy
                           ? null
                           : () => _detail(() {
                               _subtasksChanged = true;
-                              _subtasks.removeAt(index);
+                              _subtasks.add(
+                                GoodDaySubtask(
+                                  id: 'sub_${DateTime.now().microsecondsSinceEpoch}_${_subtaskSequence++}',
+                                  title: '',
+                                ),
+                              );
                             }),
+                      icon: const Icon(Icons.add, size: 16),
+                      label: const Text('添加子任务'),
                     ),
                   ],
-                ),
-              TextButton.icon(
-                key: const Key('add-reminder-subtask'),
-                onPressed: _busy
-                    ? null
-                    : () => _detail(() {
-                        _subtasksChanged = true;
-                        _subtasks.add(
-                          GoodDaySubtask(
-                            id: 'sub_${DateTime.now().microsecondsSinceEpoch}_${_subtaskSequence++}',
-                            title: '',
-                          ),
-                        );
-                      }),
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('添加子任务'),
-              ),
-            ],
-            SwitchListTile(
-              key: const Key('reminder-enabled'),
-              contentPadding: EdgeInsets.zero,
-              title: const Text('提醒我', style: TextStyle(fontSize: 13)),
-              value: _enabled,
-              onChanged: _busy
-                  ? null
-                  : (value) async {
-                      if (!value) {
-                        _detail(() => _enabled = false);
-                        return;
-                      }
-                      await _openReminderOptions();
-                    },
-            ),
-            if (_enabled)
-              TextButton.icon(
-                key: const Key('reminder-summary'),
-                onPressed: _busy ? null : _openReminderOptions,
-                style: TextButton.styleFrom(alignment: Alignment.centerLeft),
-                icon: const Icon(Icons.schedule, size: 16),
-                label: Text(
-                  '${reminderDate(_due)} ${reminderTime(_due)}\n${_rule.label} · ${_early?.label ?? '不提前提醒'}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: _due.isBefore(DateTime.now())
-                        ? const Color(0xFFA65345)
-                        : context.appColors.muted,
-                  ),
-                ),
-              ),
-            if (_error != null)
-              Text(
-                _error!,
-                style: const TextStyle(color: Color(0xFFA65345), fontSize: 12),
-              ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: FilledButton(
-                    key: const Key('save-reminder'),
-                    onPressed: _busy
+                  SwitchListTile(
+                    key: const Key('reminder-enabled'),
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('提醒我', style: TextStyle(fontSize: 13)),
+                    value: _enabled,
+                    onChanged: _busy
                         ? null
-                        : () {
-                            _detailsChanged = true;
-                            _save();
+                        : (value) async {
+                            if (!value) {
+                              _detail(() => _enabled = false);
+                              return;
+                            }
+                            await _openReminderOptions();
                           },
-                    child: Text(_busy ? '保存中…' : '完成'),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextButton(
-                    key: const Key('cancel-reminder'),
-                    onPressed: _busy ? null : widget.onClosed,
-                    child: const Text('取消'),
+                  if (_enabled)
+                    TextButton.icon(
+                      key: const Key('reminder-summary'),
+                      onPressed: _busy ? null : _openReminderOptions,
+                      style: TextButton.styleFrom(
+                        alignment: Alignment.centerLeft,
+                      ),
+                      icon: const Icon(Icons.schedule, size: 16),
+                      label: Text(
+                        '${reminderDate(_due)} ${reminderTime(_due)}\n${_rule.label} · ${_early?.label ?? '不提前提醒'}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _due.isBefore(DateTime.now())
+                              ? const Color(0xFFA65345)
+                              : context.appColors.muted,
+                        ),
+                      ),
+                    ),
+                  if (_error != null)
+                    Text(
+                      _error!,
+                      style: const TextStyle(
+                        color: Color(0xFFA65345),
+                        fontSize: 12,
+                      ),
+                    ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: FilledButton(
+                          key: const Key('save-reminder'),
+                          onPressed: _busy
+                              ? null
+                              : () {
+                                  _detailsChanged = true;
+                                  _save();
+                                },
+                          child: Text(_busy ? '保存中…' : '完成'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextButton(
+                          key: const Key('cancel-reminder'),
+                          onPressed: _busy ? null : widget.onClosed,
+                          child: const Text('取消'),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),

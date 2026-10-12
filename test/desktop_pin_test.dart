@@ -71,5 +71,6 @@ void main() {
       false,
     );
     expect(payload!['accentRgb'], 0x536D7A);
+    expect(payload!.containsKey('timing'), isFalse);
   });
 }
