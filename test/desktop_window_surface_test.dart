@@ -6,6 +6,47 @@ import 'package:good_day/desktop_window_surface.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   test(
+    'modal dialogs and nested popups preserve the underlying silhouette',
+    () async {
+      final calls = <MethodCall>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(DesktopWindowSurface.channel, (
+        call,
+      ) async {
+        calls.add(call);
+        return null;
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(
+          DesktopWindowSurface.channel,
+          null,
+        ),
+      );
+      final surface = DesktopWindowSurface();
+      final observer = WindowSurfaceObserver(surface);
+      final page = MaterialPageRoute<void>(builder: (_) => const SizedBox());
+      final popup = RawDialogRoute<void>(
+        pageBuilder: (_, _, _) => const SizedBox(),
+      );
+      final nested = RawDialogRoute<void>(
+        pageBuilder: (_, _, _) => const SizedBox(),
+      );
+      observer.didPush(popup, page);
+      observer.didPush(nested, popup);
+      observer.didPop(nested, popup);
+      await Future<void>.delayed(Duration.zero);
+      expect(surface.notesVisible, isTrue);
+      expect(calls, isEmpty);
+      surface.notesVisible = false;
+      observer.didPush(nested, popup);
+      observer.didPop(nested, popup);
+      await Future<void>.delayed(Duration.zero);
+      expect(surface.notesVisible, isFalse);
+      expect(calls, isEmpty);
+    },
+  );
+  test(
     'outer window grows and shrinks with the content, retaining its right edge',
     () {
       const original = Rect.fromLTWH(900, 24, 456, 720);

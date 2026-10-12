@@ -29,6 +29,28 @@ Future<void> openReminderOptions(WidgetTester tester) async {
   await tester.tap(find.byKey(const Key('reminder-enabled')));
   await tester.pumpAndSettle();
   expect(find.byKey(const Key('reminder-options-dialog')), findsOneWidget);
+  final dialogContext = tester.element(
+    find.byKey(const Key('reminder-options-dialog')),
+  );
+  expect(Theme.of(dialogContext).dialogTheme.backgroundColor!.a, 1);
+  final card = find
+      .descendant(
+        of: find.byKey(const Key('reminder-options-dialog')),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is Material && widget.type == MaterialType.card,
+        ),
+      )
+      .first;
+  expect(tester.getRect(card).left, greaterThanOrEqualTo(56));
+  final barriers = tester.widgetList<ModalBarrier>(find.byType(ModalBarrier));
+  expect(barriers.any((barrier) => (barrier.color?.a ?? 0) > 0.12), isFalse);
+  expect(
+    find.ancestor(
+      of: find.byKey(const Key('reminder-options-dialog')),
+      matching: find.byType(BackdropFilter),
+    ),
+    findsNothing,
+  );
 }
 
 Future<void> applyReminderOptions(WidgetTester tester) async {
@@ -173,6 +195,19 @@ void main() {
         await openReminderOptions(tester);
         expect(find.text('09:00'), findsOneWidget);
         expect(find.text('2026年10月12日'), findsOneWidget);
+        await tester.tap(find.byKey(const Key('reminder-repeat')));
+        await tester.pumpAndSettle();
+        expect(find.text('每分钟'), findsOneWidget);
+        await tester.tap(find.text('自定义').last);
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const Key('custom-repeat-interval')),
+          '5',
+        );
+        await tester.tap(find.byType(DropdownButton<RepeatUnit>));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('分钟').last);
+        await tester.pumpAndSettle();
 
         await tester.ensureVisible(find.byKey(const Key('reminder-time')));
         await tester.tap(find.byKey(const Key('reminder-time')));
@@ -197,6 +232,8 @@ void main() {
         expect(records, hasLength(1));
         expect(records.single.dueAt, DateTime(2026, 10, 12, 9));
         expect(records.single.early!.amount, 20);
+        expect(records.single.rule.unit, RepeatUnit.minute);
+        expect(records.single.rule.interval, 5);
         expect(find.text('复习数学'), findsOneWidget);
         expect(find.text('先整理错题'), findsOneWidget);
         expect(find.text('第一套试卷'), findsOneWidget);

@@ -31,35 +31,6 @@ Gdiplus::Color Mix(int rgb, float amount, BYTE neutral = 255) {
   return Gdiplus::Color(255, blend((rgb >> 16) & 255), blend((rgb >> 8) & 255),
                         blend(rgb & 255));
 }
-bool FrostWindow(HWND window) {
-  const MARGINS margins{-1, -1, -1, -1};
-  DwmExtendFrameIntoClientArea(window, &margins);
-  const DWORD backdrop = 3; // DWMSBT_TRANSIENTWINDOW on supported Windows 11.
-  const BOOL dark = FALSE;
-  DwmSetWindowAttribute(window, 20, &dark, sizeof(dark));
-  if (SUCCEEDED(DwmSetWindowAttribute(window, 38, &backdrop, sizeof(backdrop))))
-    return true;
-  // Same compatibility path used by flutter_acrylic on Windows 10.
-  struct AccentPolicy {
-    int state;
-    int flags;
-    DWORD color;
-    int animation;
-  };
-  struct CompositionData {
-    int attribute;
-    void *data;
-    SIZE_T size;
-  };
-  using SetComposition = BOOL(WINAPI *)(HWND, CompositionData *);
-  const auto set = reinterpret_cast<SetComposition>(GetProcAddress(
-      GetModuleHandleW(L"user32.dll"), "SetWindowCompositionAttribute"));
-  if (!set)
-    return false;
-  AccentPolicy policy{4, 2, 0x08FFFFFF, 0};
-  CompositionData data{19, &policy, sizeof(policy)};
-  return set(window, &data) != FALSE;
-}
 class GlassBitmap {
 public:
   GlassBitmap(HDC target, int width, int height)
@@ -252,14 +223,8 @@ bool ReminderWindow::Show(const flutter::EncodableMap &data) {
     if (value && (*value == 0.75 || *value == 1 || *value == 1.5))
       interface_scale_ = *value;
   }
-  double transparency = 0.8;
-  const auto glass = data.find(flutter::EncodableValue("glassTransparency"));
-  if (glass != data.end()) {
-    const auto value = std::get_if<double>(&glass->second);
-    if (value && std::isfinite(*value))
-      transparency = std::clamp(*value, 0.0, 0.95);
-  }
-  glass_alpha_ = static_cast<BYTE>(std::lround((1 - transparency) * 255));
+  // Popup cards stay opaque, independently of the main window glass setting.
+  glass_alpha_ = 255;
   title_ = Text(data, "title");
   time_ = Text(data, "time");
   date_ = Text(data, "date");
@@ -319,8 +284,6 @@ bool ReminderWindow::Show(const flutter::EncodableMap &data) {
     if (!SetWindowRgn(window_, region, FALSE))
       DeleteObject(region);
   }
-  if (!FrostWindow(window_))
-    glass_alpha_ = 255;
   SetWindowPos(window_, nullptr, 0, 0, 0, 0,
                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
                    SWP_FRAMECHANGED);

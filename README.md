@@ -4,20 +4,20 @@
 
 ## 下载
 
-当前版本 **1.4.8**，适用于 Windows 10／11 64 位，无需安装开发环境。
+当前版本 **1.4.9**，适用于 Windows 10／11 64 位，无需安装开发环境。
 
-- [下载安装包](https://github.com/MonkeyStar7/Good_Day/releases/download/v1.4.8/Good-Day-1.4.8-windows-x64-setup.exe)
-- [下载免安装版](https://github.com/MonkeyStar7/Good_Day/releases/download/v1.4.8/Good-Day-1.4.8-windows-x64.zip)
+- [下载安装包](https://github.com/MonkeyStar7/Good_Day/releases/download/v1.4.9/Good-Day-1.4.9-windows-x64-setup.exe)
+- [下载免安装版](https://github.com/MonkeyStar7/Good_Day/releases/download/v1.4.9/Good-Day-1.4.9-windows-x64.zip)
 - [版本与校验文件](https://github.com/MonkeyStar7/Good_Day/releases/latest)
 
 ## 可以做什么
 
 - **今天**：按上午、下午、今晚记录待办，添加备注和子任务，勾选完成。
 - **计划**：按日期查看、添加待办，展开本月其他日期和后续月份。
-- **提醒**：设置日期、滚轮时间和提前提醒；支持每小时、每天、工作日、周末、每周、每两周、每月、每三个月、每六个月、每年或自定义重复。
+- **提醒**：设置日期、滚轮时间和提前提醒；支持每分钟、每小时、每天、工作日、周末、每周、每两周、每月、每三个月、每六个月、每年或自定义重复。
 - **历史**：查看已完成、未完成记录，搜索内容；删除的事项可从垃圾桶恢复。
 - **桌面使用**：托盘后台提醒、窗口置顶、开机启动、主题色与字体选择。
-- **外观**：75%／100%／150% 整体缩放，白色默认主题；毛玻璃背景透明度可调 0%～95%，默认 80%。
+- **外观**：75%／100%／150% 整体缩放，白色默认主题；毛玻璃背景透明度可调 0%～95%，默认 55%。
 - **数据**：本机保存，支持选择／迁移数据目录、备份与恢复。
 
 ## 怎么使用

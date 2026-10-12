@@ -1,5 +1,3 @@
-import 'app_appearance.dart';
-
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -421,6 +419,10 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
                 onPressed: () async {
                   final date = await showDatePicker(
                     context: context,
+                    builder: (context, child) => Padding(
+                      padding: const EdgeInsets.only(left: 56),
+                      child: child,
+                    ),
                     initialDate: today,
                     firstDate: DateTime(1970),
                     lastDate: DateTime(2126),
@@ -789,58 +791,55 @@ class ReminderEditorState extends State<ReminderEditor>
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, update) {
           _optionsSetState = update;
-          return GlassSurface(
-            radius: 20,
-            child: AlertDialog(
-              key: const Key('reminder-options-dialog'),
-              title: const Text('提醒设置', style: TextStyle(fontSize: 18)),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              contentPadding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-              content: SizedBox(
-                width: 300,
-                child: SingleChildScrollView(child: _reminderControls(context)),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext, false),
-                  child: const Text('取消'),
-                ),
-                FilledButton(
-                  key: const Key('apply-reminder-options'),
-                  onPressed: () {
-                    final interval = int.tryParse(_interval.text),
-                        amount = int.tryParse(_leadAmount.text);
-                    if (_customRepeat &&
-                        (interval == null || interval < 1 || interval > 999)) {
-                      update(() => _error = '重复间隔请输入 1～999');
-                      return;
-                    }
-                    if (_customLead &&
-                        (amount == null || amount < 1 || amount > 200)) {
-                      update(() => _error = '提前提醒请输入 1～200');
-                      return;
-                    }
-                    if (_customRepeat) {
-                      _rule = ReminderRule(
-                        _rule.unit,
-                        interval: interval!,
-                        weekdays: _rule.weekdays,
-                      );
-                    }
-                    if (_customLead) {
-                      _early = EarlyReminder(
-                        amount!,
-                        _early?.unit ?? LeadUnit.minute,
-                      );
-                    }
-                    Navigator.pop(dialogContext, true);
-                  },
-                  child: const Text('完成'),
-                ),
-              ],
+          return AlertDialog(
+            key: const Key('reminder-options-dialog'),
+            title: const Text('提醒设置', style: TextStyle(fontSize: 18)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
             ),
+            contentPadding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+            content: SizedBox(
+              width: 300,
+              child: SingleChildScrollView(child: _reminderControls(context)),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                key: const Key('apply-reminder-options'),
+                onPressed: () {
+                  final interval = int.tryParse(_interval.text),
+                      amount = int.tryParse(_leadAmount.text);
+                  if (_customRepeat &&
+                      (interval == null || interval < 1 || interval > 999)) {
+                    update(() => _error = '重复间隔请输入 1～999');
+                    return;
+                  }
+                  if (_customLead &&
+                      (amount == null || amount < 1 || amount > 200)) {
+                    update(() => _error = '提前提醒请输入 1～200');
+                    return;
+                  }
+                  if (_customRepeat) {
+                    _rule = ReminderRule(
+                      _rule.unit,
+                      interval: interval!,
+                      weekdays: _rule.weekdays,
+                    );
+                  }
+                  if (_customLead) {
+                    _early = EarlyReminder(
+                      amount!,
+                      _early?.unit ?? LeadUnit.minute,
+                    );
+                  }
+                  Navigator.pop(dialogContext, true);
+                },
+                child: const Text('完成'),
+              ),
+            ],
           );
         },
       ),
@@ -976,6 +975,7 @@ class ReminderEditorState extends State<ReminderEditor>
                     DropdownMenuItem(
                       value: unit,
                       child: Text(switch (unit) {
+                        RepeatUnit.minute => '分钟',
                         RepeatUnit.hour => '小时',
                         RepeatUnit.day => '天',
                         RepeatUnit.week => '周',

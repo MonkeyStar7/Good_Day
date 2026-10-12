@@ -12,6 +12,17 @@ void main() {
     () {
       final anchor = DateTime(2026, 10, 12, 9, 15);
       expect(
+        ReminderRule.presets['每分钟']!.nextAfter(anchor, anchor),
+        DateTime(2026, 10, 12, 9, 16),
+      );
+      const minutes = ReminderRule(RepeatUnit.minute, interval: 5);
+      final loadedMinutes = ReminderRule.fromJson(minutes.toJson());
+      expect(loadedMinutes.label, '每 5 分钟');
+      expect(
+        loadedMinutes.nextAfter(anchor, DateTime(2026, 10, 12, 23, 59, 59)),
+        DateTime(2026, 10, 13),
+      );
+      expect(
         ReminderRule.presets['每小时']!.nextAfter(anchor, anchor),
         DateTime(2026, 10, 12, 10, 15),
       );
@@ -114,6 +125,30 @@ void main() {
     expect((await repository.loadTasks()).single.id, old.id);
     expect((await repository.loadPlans()).single.title, '旧计划');
   });
+  test(
+    'minute recurrence persists and advances once after concurrent completion',
+    () async {
+      now = DateTime(2026, 10, 12, 23, 59, 45);
+      final item = await repository.saveReminder(
+        title: '分钟事项',
+        notes: '',
+        dueAt: DateTime(2026, 10, 12, 23, 58),
+        rule: ReminderRule.presets['每分钟']!,
+      );
+      await Future.wait([
+        repository.completeReminder(item, true),
+        repository.completeReminder(item, true),
+      ]);
+      final reopened = VaultRepository(vault, clock: () => now);
+      final records = await reopened.loadReminders();
+      expect(records, hasLength(2));
+      final next = records.singleWhere((entry) => !entry.isCompleted);
+      expect(next.dueAt, DateTime(2026, 10, 13));
+      expect(next.rule.unit, RepeatUnit.minute);
+      expect(next.phaseDue(now), isNull);
+      expect(next.phaseDue(DateTime(2026, 10, 13)), 'due');
+    },
+  );
   test(
     'hourly completion creates distinct next instances without duplicates',
     () async {

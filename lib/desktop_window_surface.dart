@@ -91,6 +91,9 @@ class WindowSurfaceObserver extends NavigatorObserver {
   WindowSurfaceObserver(this.surface);
   final DesktopWindowSurface surface;
   void _update(Route<dynamic>? route) {
+    // A modal belongs to the underlying page. Keep its transparent note gaps
+    // and scoped desktop backdrop instead of turning the whole window solid.
+    if (route is PopupRoute<dynamic>) return;
     surface.notesVisible = route?.isFirst ?? true;
     // Route changes do not resize the window; only the silhouette changes.
     surface.updateShape().catchError((Object error) {

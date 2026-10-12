@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'good_day_task.dart';
 
-enum RepeatUnit { none, hour, day, week, month, year }
+enum RepeatUnit { none, minute, hour, day, week, month, year }
 
 enum LeadUnit { minute, hour, day, week, month }
 
@@ -13,6 +13,7 @@ class ReminderRule {
   final List<int> weekdays;
   static const presets = <String, ReminderRule>{
     '不重复': ReminderRule(RepeatUnit.none),
+    '每分钟': ReminderRule(RepeatUnit.minute),
     '每小时': ReminderRule(RepeatUnit.hour),
     '每天': ReminderRule(RepeatUnit.day),
     '工作日': ReminderRule(RepeatUnit.week, weekdays: [1, 2, 3, 4, 5]),
@@ -51,6 +52,7 @@ class ReminderRule {
     }
     final unitLabel = switch (unit) {
       RepeatUnit.none => '',
+      RepeatUnit.minute => '分钟',
       RepeatUnit.hour => '小时',
       RepeatUnit.day => '天',
       RepeatUnit.week => '周',
@@ -68,8 +70,8 @@ class ReminderRule {
     if (boundary.isBefore(anchor)) return anchor;
     DateTime at(int year, int month, int day) =>
         DateTime(year, month, day, anchor.hour, anchor.minute);
-    if (unit == RepeatUnit.hour) {
-      final step = interval * 60;
+    if (unit == RepeatUnit.minute || unit == RepeatUnit.hour) {
+      final step = interval * (unit == RepeatUnit.hour ? 60 : 1);
       return anchor.add(
         Duration(
           minutes: (boundary.difference(anchor).inMinutes ~/ step + 1) * step,

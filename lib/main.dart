@@ -294,18 +294,18 @@ class GoodDayApp extends StatelessWidget {
             useMaterial3: true,
             extensions: [AppGlassStyle(settings.glassTransparency)],
             scaffoldBackgroundColor: Colors.transparent,
-            canvasColor: colors.paper,
+            canvasColor: colors.paper.withValues(alpha: 1),
             datePickerTheme: DatePickerThemeData(
-              backgroundColor: colors.paper,
+              backgroundColor: colors.paper.withValues(alpha: 1),
               surfaceTintColor: Colors.transparent,
-              headerBackgroundColor: colors.panel,
+              headerBackgroundColor: colors.panel.withValues(alpha: 1),
               headerForegroundColor: colors.ink,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
               ),
             ),
             popupMenuTheme: PopupMenuThemeData(
-              color: colors.paper,
+              color: colors.paper.withValues(alpha: 1),
               surfaceTintColor: Colors.transparent,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
@@ -361,8 +361,11 @@ class GoodDayApp extends StatelessWidget {
               ),
             ),
             dialogTheme: DialogThemeData(
-              backgroundColor: colors.paper,
+              backgroundColor: colors.paper.withValues(alpha: 1),
               surfaceTintColor: Colors.transparent,
+              barrierColor: colors.ink.withValues(alpha: 0.1),
+              // Align modal cards with the paper, clear of the note-tab gaps.
+              insetPadding: const EdgeInsets.fromLTRB(72, 24, 16, 24),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
               ),

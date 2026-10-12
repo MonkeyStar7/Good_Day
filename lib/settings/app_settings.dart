@@ -77,7 +77,7 @@ class AppSettings {
     this.font = AppFont.appleStyle,
     this.accent = AppAccent.white,
     this.interfaceSize = InterfaceSize.medium,
-    this.glassTransparency = 0.8,
+    this.glassTransparency = 0.55,
   });
 
   final AppFont font;
@@ -117,7 +117,7 @@ class AppSettings {
           json['glassTransparency'] is num &&
               (json['glassTransparency'] as num).isFinite
           ? (json['glassTransparency'] as num).toDouble().clamp(0, 0.95)
-          : 0.8,
+          : 0.55,
     );
   }
 }

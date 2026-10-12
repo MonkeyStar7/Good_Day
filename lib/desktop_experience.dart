@@ -52,7 +52,7 @@ class SystemDesktopExperience extends DesktopExperience
   final ValueNotifier<bool> _windowPinned = ValueNotifier(false);
   bool _reminderOnTop = false;
   double interfaceScale = 1;
-  double glassTransparency = 0.8;
+  double glassTransparency = 0.55;
   final _topmostOperations = OperationQueue();
   Future<bool> Function()? _saveGuard;
   static const _lifecycle = MethodChannel('good_day/lifecycle');

@@ -31,7 +31,7 @@ void main() {
   test('new installs use the Apple-style font preset by default', () {
     expect(const AppSettings().font, AppFont.appleStyle);
     expect(const AppSettings().accent, AppAccent.white);
-    expect(const AppSettings().glassTransparency, 0.8);
+    expect(const AppSettings().glassTransparency, 0.55);
     expect(AppSettings.fromJson({}).accent, AppAccent.white);
     expect(AppSettings.fromJson({'accent': 'forest'}).accent, AppAccent.forest);
   });
@@ -59,14 +59,14 @@ void main() {
 
   test('old and invalid appearance settings have safe defaults', () {
     expect(AppSettings.fromJson({}).interfaceSize, InterfaceSize.medium);
-    expect(AppSettings.fromJson({}).glassTransparency, 0.8);
+    expect(AppSettings.fromJson({}).glassTransparency, 0.55);
     expect(
       AppSettings.fromJson({'interfaceSize': 'unknown'}).interfaceSize,
       InterfaceSize.medium,
     );
     expect(
       AppSettings.fromJson({'glassTransparency': 'broken'}).glassTransparency,
-      0.8,
+      0.55,
     );
     expect(
       AppSettings.fromJson({'glassTransparency': 4}).glassTransparency,
