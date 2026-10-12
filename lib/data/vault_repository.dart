@@ -132,7 +132,9 @@ class VaultRepository {
 
   static Future<VaultRepository> createDefault() async {
     final documents = await getApplicationDocumentsDirectory();
-    return VaultRepository(_childDirectory(documents, 'Good Day Vault'));
+    return VaultRepository(
+      _childDirectory(_childDirectory(documents, 'Good Day'), 'MD'),
+    );
   }
 
   Future<void> initialize() async {
