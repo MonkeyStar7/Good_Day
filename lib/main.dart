@@ -746,7 +746,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _persistNewTask() async {
     final title = _controller.text.trim();
-    if (title.isEmpty) return;
     final task = _taskPeriod == TaskPeriod.day
         ? await _repository.addTask(title)
         : await _repository.addPeriodTask(title, _taskPeriod);
@@ -978,15 +977,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (sort) _sortTasks();
   }
 
-  Future<void> _updateTaskDetails(String taskId, String title, String notes) =>
-      _actions.run(() async {
-        final updated = await _repository.updateTaskDetails(
-          _taskById(taskId),
-          title: title,
-          notes: notes,
-        );
-        if (mounted) setState(() => _replaceTask(updated));
-      });
+  Future<GoodDayTask> _updateTaskDetails(
+    String taskId,
+    String title,
+    String notes,
+  ) => _actions.run(() async {
+    final updated = await _repository.updateTaskDetails(
+      _taskById(taskId),
+      title: title,
+      notes: notes,
+    );
+    if (mounted) setState(() => _replaceTask(updated));
+    return updated;
+  });
 
   Future<void> _addSubtask(String taskId, String title) =>
       _actions.run(() async {
@@ -1432,7 +1435,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
           ),
         ),
-        const SizedBox(height: 12),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(6, 9, 6, 10),
+            child: Text(
+              _taskPeriod.dateLabel(_displayDate),
+              key: const Key('task-period-date'),
+              style: TextStyle(fontSize: 12, color: context.appColors.muted),
+            ),
+          ),
+        ),
         if (_taskPeriod == TaskPeriod.backlog)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
@@ -3573,7 +3586,8 @@ class _TaskTile extends StatefulWidget {
   final bool expanded;
   final VoidCallback onToggleExpanded;
   final ValueChanged<bool?> onChanged;
-  final Future<void> Function(String title, String notes) onDetailsChanged;
+  final Future<GoodDayTask> Function(String title, String notes)
+  onDetailsChanged;
   final Future<void> Function(String? goalId) onGoalChanged;
   final Future<void> Function(String title) onAddSubtask;
   final SubtaskUpdateCallback onUpdateSubtask;
@@ -3603,7 +3617,6 @@ class _TaskTileState extends State<_TaskTile>
   bool _addingSubtask = false;
   bool _saving = false;
   bool _saved = false;
-  bool _titleError = false;
   bool _optionsEditing = false;
 
   @override
@@ -3647,9 +3660,6 @@ class _TaskTileState extends State<_TaskTile>
   void _scheduleSave() {
     markPendingEdit();
     _saveTimer?.cancel();
-    final valid = _titleController.text.trim().isNotEmpty;
-    if (_titleError == valid) setState(() => _titleError = !valid);
-    if (!valid) return;
     _saveTimer = Timer(const Duration(milliseconds: 650), _saveDetails);
   }
 
@@ -3670,11 +3680,8 @@ class _TaskTileState extends State<_TaskTile>
 
   Future<bool> _persistTaskDetails() async {
     _saveTimer?.cancel();
-    final title = _titleController.text.trim();
-    if (title.isEmpty) {
-      if (mounted) setState(() => _titleError = true);
-      return false;
-    }
+    final draftTitle = _titleController.text;
+    final title = draftTitle.trim();
     final notes = _noteController.text.replaceAll(RegExp(r'[\r\n]+'), ' ');
     if (title == widget.task.title && notes.trimRight() == widget.task.notes) {
       return true;
@@ -3682,13 +3689,16 @@ class _TaskTileState extends State<_TaskTile>
 
     if (mounted) setState(() => _saving = true);
     try {
-      await widget.onDetailsChanged(title, notes);
+      final updated = await widget.onDetailsChanged(title, notes);
       if (!mounted) return true;
+      // Only fill the saved default name if the user has not typed a newer draft.
+      if (_titleController.text == draftTitle && title.isEmpty) {
+        _titleController.text = updated.title;
+      }
       _savedTimer?.cancel();
       setState(() {
         _saving = false;
         _saved = true;
-        _titleError = false;
       });
       _savedTimer = Timer(const Duration(milliseconds: 1100), () {
         if (mounted) setState(() => _saved = false);
@@ -3825,11 +3835,9 @@ class _TaskTileState extends State<_TaskTile>
                                 border: InputBorder.none,
                                 isDense: true,
                                 contentPadding: EdgeInsets.zero,
-                                hintText: '任务内容不能为空',
+                                hintText: '未命名',
                                 hintStyle: TextStyle(
-                                  color: _titleError
-                                      ? const Color(0xFF8B3A32)
-                                      : context.appColors.muted,
+                                  color: context.appColors.muted,
                                 ),
                               ),
                             )
@@ -4102,21 +4110,15 @@ class _TaskTileState extends State<_TaskTile>
                             ),
                           ),
                   ),
-                  if (_saving || _saved || _titleError)
+                  if (_saving || _saved)
                     Padding(
                       padding: const EdgeInsets.fromLTRB(60, 0, 38, 5),
                       child: Align(
                         alignment: Alignment.centerRight,
                         child: Text(
-                          _titleError
-                              ? '任务内容不能为空'
-                              : _saving
-                              ? '保存中…'
-                              : '已保存',
+                          _saving ? '保存中…' : '已保存',
                           style: TextStyle(
-                            color: _titleError
-                                ? const Color(0xFF8B3A32)
-                                : context.appColors.muted,
+                            color: context.appColors.muted,
                             fontSize: 12,
                           ),
                         ),

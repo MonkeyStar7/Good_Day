@@ -65,6 +65,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(ChoiceChip), findsNothing);
       expect(find.byKey(const Key('period-navigation-line')), findsOneWidget);
+      expect(find.text('2026年9月8日 · 周二'), findsOneWidget);
       expect(find.byKey(const Key('task-section-进行中')), findsNothing);
       expect(find.byKey(const Key('task-section-已完成')), findsNothing);
       expect(find.text('添加今日待办任务'), findsOneWidget);
@@ -84,6 +85,7 @@ void main() {
       );
       await tester.tap(find.byKey(const Key('task-period-week')));
       await tester.pumpAndSettle();
+      expect(find.text('2026年第37周 · 9月7日—9月13日'), findsOneWidget);
       final dayEdge = tester
           .getRect(find.byKey(const Key('task-period-day')))
           .bottom;
@@ -1009,6 +1011,70 @@ void main() {
     },
   );
 
+  testWidgets('blank task names are filled and no longer block navigation', (
+    tester,
+  ) async {
+    final repository = _MemoryRepository();
+    final task = await repository.addTask('原任务');
+    await tester.pumpWidget(
+      GoodDayApp(
+        repository: repository,
+        settingsController: AppSettingsController.inMemory(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final field = find.byKey(Key('task-title-${task.id}'));
+    await tester.tap(find.byKey(Key('task-content-${task.id}')));
+    await tester.pumpAndSettle();
+    await tester.enterText(field, '   ');
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pumpAndSettle();
+    expect(repository.tasks.single.title, '未命名1');
+    expect(tester.widget<TextField>(field).controller!.text, '未命名1');
+    expect(find.text('任务内容不能为空'), findsNothing);
+    await tester.enterText(field, '');
+    await tester.tap(find.byKey(const Key('nav-plans')));
+    await tester.pumpAndSettle();
+    expect(field, findsNothing);
+    expect(repository.tasks.single.title, '未命名1');
+    await tester.tap(find.byKey(const Key('nav-today')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('add-task-button')));
+    await tester.pumpAndSettle();
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    expect(repository.tasks.map((task) => task.title), ['未命名1', '未命名2']);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'default name saved in flight does not overwrite newly typed title',
+    (tester) async {
+      final repository = _SlowEditRepository();
+      final task = await repository.addTask('开始');
+      await tester.pumpWidget(
+        GoodDayApp(
+          repository: repository,
+          settingsController: AppSettingsController.inMemory(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(Key('task-content-${task.id}')));
+      await tester.pumpAndSettle();
+      final field = find.byKey(Key('task-title-${task.id}'));
+      await tester.enterText(field, '');
+      await tester.pump(const Duration(milliseconds: 650));
+      await tester.pump();
+      expect(repository.started, isTrue);
+      await tester.enterText(field, '新名字要保留');
+      repository.gate.complete();
+      await tester.pumpAndSettle();
+      expect(repository.tasks.single.title, '新名字要保留');
+      expect(tester.widget<TextField>(field).controller!.text, '新名字要保留');
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('failed saves keep the editor open and retry allows navigation', (
     tester,
   ) async {
@@ -1149,7 +1215,7 @@ void main() {
       now = DateTime(2026, 9, 9, 0, 0, 5);
       await tester.pump(const Duration(seconds: 30));
       await tester.pumpAndSettle();
-      expect(find.text('9月9日  星期三'), findsNothing);
+      expect(find.text('2026年9月9日 · 周三'), findsOneWidget);
       expect(find.text('留到明天'), findsNothing);
       expect(find.text('昨天完成'), findsNothing);
       expect(dateKey(repository.tasks.first.scheduledDate), '2026-09-08');
@@ -1161,7 +1227,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('task-period-day')));
       await tester.pumpAndSettle();
-      expect(find.text('9月11日  星期五'), findsNothing);
+      expect(find.text('2026年9月11日 · 周五'), findsOneWidget);
       expect(dateKey(repository.tasks.first.scheduledDate), '2026-09-08');
       expect(tester.takeException(), isNull);
     },
@@ -1301,7 +1367,7 @@ class _MemoryRepository extends VaultRepository {
     final now = DateTime(2026, 9, 8, 9, _sequence++);
     final task = GoodDayTask(
       id: 'test_${_sequence.toString()}',
-      title: title,
+      title: title.trim().isEmpty ? _nextUnnamedTitle() : title,
       createdAt: now,
       scheduledDate: now,
     );
@@ -1418,7 +1484,24 @@ class _MemoryRepository extends VaultRepository {
     required String title,
     required String notes,
   }) async {
+    if (title.trim().isEmpty) {
+      title = RegExp(r'^未命名[1-9][0-9]*$').hasMatch(task.title)
+          ? task.title
+          : _nextUnnamedTitle();
+    }
     return _replace(task.updateDetails(title: title, notes: notes));
+  }
+
+  String _nextUnnamedTitle() {
+    var number = 1;
+    final titles = {
+      ...tasks.map((task) => task.title),
+      ...trashedTasks.values.map((task) => task.title),
+    };
+    while (titles.contains('未命名$number')) {
+      number++;
+    }
+    return '未命名$number';
   }
 
   @override

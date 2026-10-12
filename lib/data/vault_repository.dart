@@ -373,16 +373,37 @@ class VaultRepository {
   Future<GoodDayTask> addTask(String title) =>
       addPeriodTask(title, TaskPeriod.day);
 
+  Future<String> _resolveTaskTitle(String title, {GoodDayTask? current}) async {
+    final normalized = title.trim();
+    if (normalized.isNotEmpty) return normalized;
+    final pattern = RegExp(r'^未命名([1-9][0-9]*)$');
+    if (current != null && pattern.hasMatch(current.title)) {
+      return current.title;
+    }
+    final tasks = [
+      ...await _readTasks(tasksDirectory),
+      ...await _readTasks(archiveDirectory),
+      for (final series in await _readTaskSeries()) series.template,
+    ];
+    var highest = 0;
+    for (final task in tasks) {
+      final match = pattern.firstMatch(task.title);
+      final number = match == null ? null : int.tryParse(match.group(1)!);
+      if (number != null && number > highest) highest = number;
+    }
+    return '未命名${highest + 1}';
+  }
+
   Future<GoodDayTask> addPeriodTask(String title, TaskPeriod period) =>
       _writeOperation(() async {
         if (period == TaskPeriod.backlog) {
           throw const FormatException('请选择一个安排周期');
         }
-        if (title.trim().isEmpty) throw const FormatException('任务名称不能为空');
+        final resolvedTitle = await _resolveTaskTitle(title);
         final now = _clock();
         final task = GoodDayTask(
           id: _newId('gd', now),
-          title: title.trim(),
+          title: resolvedTitle,
           createdAt: now,
           scheduledDate: now,
           period: period,
@@ -746,8 +767,8 @@ class VaultRepository {
     DateTime? reminderAt,
     int reminderIntervalMinutes = 0,
   }) async {
-    if (title.trim().isEmpty) throw const FormatException('任务名称不能为空');
     var current = task == null ? null : await _currentTask(task);
+    title = await _resolveTaskTitle(title, current: current);
     final selectedPeriod = period ?? current?.period ?? TaskPeriod.day;
     final normalized = DateTime(date.year, date.month, date.day);
     final changed =
@@ -1073,9 +1094,7 @@ class VaultRepository {
     required String notes,
   }) => _writeOperation(() async {
     task = await _currentTask(task);
-    if (title.trim().isEmpty) {
-      throw const FormatException('任务内容不能为空');
-    }
+    title = await _resolveTaskTitle(title, current: task);
     final updated = task.updateDetails(title: title, notes: notes);
     await _writeTask(updated);
     await _updateSeriesTemplate(updated);

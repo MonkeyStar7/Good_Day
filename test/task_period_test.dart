@@ -13,6 +13,22 @@ void main() {
     scheduledDate: date,
     period: period,
   );
+  test('period labels show dates, ISO week ranges, month and year', () {
+    final today = DateTime(2026, 10, 12);
+    expect(TaskPeriod.day.dateLabel(today), '2026年10月12日 · 周一');
+    expect(TaskPeriod.week.dateLabel(today), '2026年第42周 · 10月12日—10月18日');
+    expect(TaskPeriod.month.dateLabel(today), '2026年10月');
+    expect(TaskPeriod.year.dateLabel(today), '2026年');
+    expect(
+      TaskPeriod.week.dateLabel(DateTime(2027, 1, 1)),
+      '2026年第53周 · 2026年12月28日—2027年1月3日',
+    );
+    expect(
+      TaskPeriod.week.dateLabel(DateTime(2027, 1, 4)),
+      '2027年第1周 · 1月4日—1月10日',
+    );
+  });
+
   test('calendar periods cross weeks, leap months and years correctly', () {
     expect(TaskPeriod.week.start(DateTime(2027, 1, 1)), DateTime(2026, 12, 28));
     expect(TaskPeriod.week.end(DateTime(2027, 1, 1)), DateTime(2027, 1, 4));

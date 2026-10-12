@@ -23,6 +23,67 @@ void main() {
     }
   });
 
+  test('empty task names are numbered and survive completion, deletion and reopening', () async {
+    var first = await repository.addTask('  ');
+    expect(first.title, '未命名1');
+    first = await repository.updateTaskDetails(first, title: '', notes: '保留备注');
+    expect(first.title, '未命名1');
+    final second = await repository.addPeriodTask('', TaskPeriod.week);
+    expect(second.title, '未命名2');
+    await repository.setCompleted(second, true);
+    await repository.deleteTask(first);
+    final third = await repository.addTask('原名称');
+    final renamed = await repository.updateTaskDetails(
+      third,
+      title: '\n  ',
+      notes: '保存成功',
+    );
+    expect(renamed.title, '未命名3');
+    final reopened = VaultRepository(temporaryVault, clock: () => now);
+    final records = await reopened.loadTasks();
+    expect(records.firstWhere((item) => item.id == renamed.id).title, '未命名3');
+    expect(records.firstWhere((item) => item.id == renamed.id).notes, '保存成功');
+    final created = await reopened.addTask('');
+    expect(created.title, '未命名4');
+  });
+
+  test(
+    'concurrent blank task creation allocates distinct default names',
+    () async {
+      final records = await Future.wait([
+        repository.addTask(''),
+        repository.addPeriodTask(' ', TaskPeriod.month),
+        repository.addPeriodTask('', TaskPeriod.year),
+      ]);
+      expect(records.map((task) => task.title).toSet(), {
+        '未命名1',
+        '未命名2',
+        '未命名3',
+      });
+    },
+  );
+
+  test('completed daily tasks stay completed while unfinished tasks wait after midnight', () async {
+    now = DateTime(2026, 10, 12, 23, 59);
+    final unfinished = await repository.addTask('没做完');
+    final completed = await repository.setCompleted(
+      await repository.addTask('已做完'),
+      true,
+    );
+    now = DateTime(2026, 10, 13);
+    final reopened = VaultRepository(temporaryVault, clock: () => now);
+    final records = await reopened.loadTasks();
+    final waiting = records.singleWhere((task) => task.id == unfinished.id);
+    final done = records.singleWhere((task) => task.id == completed.id);
+    expect(waiting.appearsIn(TaskPeriod.backlog, now), isTrue);
+    expect(waiting.appearsIn(TaskPeriod.day, now), isFalse);
+    expect(done.isCompleted, isTrue);
+    expect(done.completedAt, completed.completedAt);
+    expect(done.appearsIn(TaskPeriod.backlog, now), isFalse);
+    expect(done.appearsIn(TaskPeriod.day, now), isFalse);
+    expect(done.appearsIn(TaskPeriod.week, now), isTrue);
+  });
+
   test('Markdown task is the source of truth and Daily stays readable', () async {
     final created = await repository.addTask('写下今天的计划');
     final taskFile = File(

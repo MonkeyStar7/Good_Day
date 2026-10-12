@@ -17,6 +17,33 @@ extension TaskPeriodRange on TaskPeriod {
     TaskPeriod.backlog => '待安排',
   };
 
+  String dateLabel(DateTime date) {
+    final d = date.toLocal();
+    switch (this) {
+      case TaskPeriod.day:
+        const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+        return '${d.year}年${d.month}月${d.day}日 · ${weekdays[d.weekday - 1]}';
+      case TaskPeriod.week:
+        final first = start(d);
+        final last = DateTime(first.year, first.month, first.day + 6);
+        // ISO weeks begin on Monday; the Thursday determines the week-year.
+        final thursday = DateTime.utc(first.year, first.month, first.day + 3);
+        final january4 = DateTime.utc(thursday.year, 1, 4);
+        final week1 = january4.subtract(Duration(days: january4.weekday - 1));
+        final monday = DateTime.utc(first.year, first.month, first.day);
+        final week = monday.difference(week1).inDays ~/ 7 + 1;
+        String rangeDate(DateTime value) =>
+            '${first.year != last.year ? '${value.year}年' : ''}${value.month}月${value.day}日';
+        return '${thursday.year}年第$week周 · ${rangeDate(first)}—${rangeDate(last)}';
+      case TaskPeriod.month:
+        return '${d.year}年${d.month}月';
+      case TaskPeriod.year:
+        return '${d.year}年';
+      case TaskPeriod.backlog:
+        return '过期未完成 · 等待重新安排';
+    }
+  }
+
   DateTime start(DateTime date) {
     final d = date.toLocal();
     return switch (this) {
