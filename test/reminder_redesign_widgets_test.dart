@@ -194,11 +194,28 @@ void main() {
         await inspect('00-inline-editor');
         await openReminderOptions(tester);
         expect(find.text('09:00'), findsOneWidget);
-        expect(find.text('2026年10月12日'), findsOneWidget);
+        expect(find.byTooltip('2026年10月12日'), findsOneWidget);
+        expect(
+          tester.getRect(find.byKey(const Key('reminder-date'))).center.dy,
+          tester.getRect(find.byKey(const Key('reminder-time'))).center.dy,
+        );
         await tester.tap(find.byKey(const Key('reminder-repeat')));
         await tester.pumpAndSettle();
         expect(find.text('每分钟'), findsOneWidget);
-        await tester.tap(find.text('自定义').last);
+        final menu = find.byType(Scrollable).last;
+        expect(tester.getSize(menu).height, lessThanOrEqualTo(240));
+        await inspect('01-repeat-menu');
+        final customRepeatOption = find.descendant(
+          of: menu,
+          matching: find.text('自定义'),
+        );
+        await tester.scrollUntilVisible(
+          customRepeatOption,
+          120,
+          scrollable: menu,
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(customRepeatOption);
         await tester.pumpAndSettle();
         await tester.enterText(
           find.byKey(const Key('custom-repeat-interval')),
@@ -208,6 +225,13 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('分钟').last);
         await tester.pumpAndSettle();
+        final number = tester.getRect(
+          find.byKey(const Key('custom-repeat-interval')),
+        );
+        final unit = tester.getRect(find.byType(DropdownButton<RepeatUnit>));
+        expect((number.center.dy - unit.center.dy).abs(), lessThan(1));
+        expect(unit.left - number.right, inInclusiveRange(0, 15));
+        expect(find.text('一次'), findsOneWidget);
 
         await tester.ensureVisible(find.byKey(const Key('reminder-time')));
         await tester.tap(find.byKey(const Key('reminder-time')));
@@ -217,7 +241,18 @@ void main() {
         await tester.ensureVisible(find.byKey(const Key('early-reminder')));
         await tester.tap(find.byKey(const Key('early-reminder')));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('自定义').last);
+        final leadMenu = find.byType(Scrollable).last;
+        final customLeadOption = find.descendant(
+          of: leadMenu,
+          matching: find.text('自定义'),
+        );
+        await tester.scrollUntilVisible(
+          customLeadOption,
+          120,
+          scrollable: leadMenu,
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(customLeadOption);
         await tester.pumpAndSettle();
         await tester.enterText(
           find.byKey(const Key('custom-lead-amount')),
@@ -286,7 +321,7 @@ void main() {
         await tester.pumpAndSettle();
         await inspect('06-expanded-month');
         await openReminderOptions(tester);
-        expect(find.text('2026年11月1日'), findsOneWidget);
+        expect(find.byTooltip('2026年11月1日'), findsOneWidget);
         expect(find.text('09:00'), findsOneWidget);
         await tester.tap(find.widgetWithText(TextButton, '取消').last);
         await tester.pumpAndSettle();

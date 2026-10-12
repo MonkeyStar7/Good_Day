@@ -786,6 +786,7 @@ class ReminderEditorState extends State<ReminderEditor>
         oldLead = _customLead,
         oldShowTime = _showTime;
     final oldInterval = _interval.text, oldAmount = _leadAmount.text;
+    _error = null;
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -793,11 +794,14 @@ class ReminderEditorState extends State<ReminderEditor>
           _optionsSetState = update;
           return AlertDialog(
             key: const Key('reminder-options-dialog'),
-            title: const Text('提醒设置', style: TextStyle(fontSize: 18)),
+            title: const Text(
+              '提醒设置',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(20),
             ),
-            contentPadding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+            contentPadding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
             content: SizedBox(
               width: 300,
               child: SingleChildScrollView(child: _reminderControls(context)),
@@ -868,6 +872,57 @@ class ReminderEditorState extends State<ReminderEditor>
     }
   }
 
+  Widget _reminderNumber(
+    String name,
+    TextEditingController controller,
+    String label,
+  ) => Semantics(
+    label: label,
+    child: SizedBox(
+      width: 44,
+      height: 36,
+      child: TextField(
+        key: Key(name),
+        enabled: !_busy,
+        controller: controller,
+        textAlign: TextAlign.center,
+        textAlignVertical: TextAlignVertical.center,
+        style: Theme.of(context).textTheme.bodyMedium!
+            .copyWith(fontSize: 14, color: context.appColors.ink),
+        keyboardType: TextInputType.number,
+        inputFormatters: [
+          FilteringTextInputFormatter.digitsOnly,
+          LengthLimitingTextInputFormatter(3),
+        ],
+        decoration: InputDecoration(
+          isDense: true,
+          filled: true,
+          fillColor: context.appColors.paper.withValues(alpha: 1),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 6,
+            vertical: 8,
+          ),
+          hintText: '1',
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(
+              color: context.appColors.line.withValues(alpha: 0.7),
+            ),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(
+              color: Theme.of(context).colorScheme.primary,
+              width: 1.3,
+            ),
+          ),
+        ),
+        onChanged: (_) => _detail(() => _error = null),
+      ),
+    ),
+  );
+
   Widget _reminderControls(BuildContext context) {
     final repeatPreset = ReminderRule.presets.entries
         .where((entry) => entry.value.label == _rule.label)
@@ -877,210 +932,305 @@ class ReminderEditorState extends State<ReminderEditor>
         .where((entry) => entry.value?.label == _early?.label)
         .firstOrNull
         ?.key;
+    final colors = context.appColors;
+    final dateStyle = TextButton.styleFrom(
+      backgroundColor: colors.paper.withValues(alpha: 1),
+      foregroundColor: colors.ink,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      minimumSize: Size.zero,
+      textStyle: Theme.of(context).textTheme.bodyMedium!.copyWith(fontSize: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        TextButton.icon(
-          key: const Key('reminder-date'),
-          style: TextButton.styleFrom(alignment: Alignment.centerLeft),
-          onPressed: _busy
-              ? null
-              : () async {
-                  final date = await showDatePicker(
-                    context: context,
-                    initialDate: _due,
-                    firstDate: DateTime(_due.year < 1970 ? _due.year : 1970),
-                    lastDate: DateTime(
-                      (_due.year > 2126 ? _due.year : 2126) + 1,
-                    ),
-                  );
-                  if (date != null) {
-                    _detail(
-                      () => _due = DateTime(
-                        date.year,
-                        date.month,
-                        date.day,
-                        _due.hour,
-                        _due.minute,
-                      ),
-                    );
-                  }
-                },
-          icon: const Icon(Icons.calendar_today_outlined, size: 16),
-          label: Text(reminderDate(_due)),
-        ),
-        TextButton.icon(
-          key: const Key('reminder-time'),
-          style: TextButton.styleFrom(alignment: Alignment.centerLeft),
-          onPressed: _busy ? null : () => _change(() => _showTime = !_showTime),
-          icon: const Icon(Icons.schedule, size: 17),
-          label: Text(reminderTime(_due)),
-        ),
-        if (_showTime)
-          ReminderClockWheels(
-            value: _due,
-            enabled: !_busy,
-            onChanged: (date) => _detail(() => _due = date),
-          ),
-        DropdownButtonFormField<String>(
-          key: const Key('reminder-repeat'),
-          initialValue: _customRepeat ? '自定义' : repeatPreset ?? '自定义',
-          isExpanded: true,
-          decoration: const InputDecoration(labelText: '重复'),
-          items: [
-            for (final label in [...ReminderRule.presets.keys, '自定义'])
-              DropdownMenuItem(
-                value: label,
-                child: Text(label, style: const TextStyle(fontSize: 13)),
-              ),
-          ],
-          onChanged: _busy
-              ? null
-              : (value) => _detail(() {
-                  _customRepeat = value == '自定义';
-                  if (!_customRepeat) {
-                    _rule = ReminderRule.presets[value]!;
-                  } else {
-                    _rule = ReminderRule(
-                      _rule.unit == RepeatUnit.none
-                          ? RepeatUnit.day
-                          : _rule.unit,
-                      weekdays: _rule.weekdays,
-                    );
-                    _interval.text = '${_rule.interval}';
-                  }
-                }),
-        ),
-        if (_customRepeat) ...[
-          const SizedBox(height: 8),
-          Row(
+        _ReminderSettingCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('每 '),
-              Expanded(
-                child: TextField(
-                  key: const Key('custom-repeat-interval'),
-                  enabled: !_busy,
-                  controller: _interval,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                ),
+              Text(
+                '日期与时间',
+                style: TextStyle(fontSize: 13, color: colors.muted),
               ),
-              const SizedBox(width: 8),
-              DropdownButton<RepeatUnit>(
-                value: _rule.unit,
-                items: [
-                  for (final unit in RepeatUnit.values.where(
-                    (unit) => unit != RepeatUnit.none,
-                  ))
-                    DropdownMenuItem(
-                      value: unit,
-                      child: Text(switch (unit) {
-                        RepeatUnit.minute => '分钟',
-                        RepeatUnit.hour => '小时',
-                        RepeatUnit.day => '天',
-                        RepeatUnit.week => '周',
-                        RepeatUnit.month => '月',
-                        RepeatUnit.year => '年',
-                        RepeatUnit.none => '',
-                      }),
-                    ),
-                ],
-                onChanged: _busy
-                    ? null
-                    : (unit) => _detail(() => _rule = ReminderRule(unit!)),
-              ),
-            ],
-          ),
-          if (_rule.unit == RepeatUnit.week)
-            Wrap(
-              spacing: 4,
-              children: [
-                for (var day = 1; day <= 7; day++)
-                  FilterChip(
-                    label: Text(
-                      _weekdays[day - 1],
-                      style: const TextStyle(fontSize: 11),
-                    ),
-                    selected: _rule.weekdays.contains(day),
-                    showCheckmark: false,
-                    onSelected: _busy
-                        ? null
-                        : (selected) => _detail(() {
-                            final days = _rule.weekdays.toSet();
-                            selected ? days.add(day) : days.remove(day);
-                            _rule = ReminderRule(
-                              RepeatUnit.week,
-                              weekdays: days.toList()..sort(),
-                            );
-                          }),
-                  ),
-              ],
-            ),
-        ],
-        const SizedBox(height: 12),
-        DropdownButtonFormField<String>(
-          key: const Key('early-reminder'),
-          initialValue: _customLead ? '自定义' : leadPreset ?? '自定义',
-          isExpanded: true,
-          decoration: const InputDecoration(labelText: '提前提醒'),
-          items: [
-            for (final label in [...EarlyReminder.presets.keys, '自定义'])
-              DropdownMenuItem(
-                value: label,
-                child: Text(label, style: const TextStyle(fontSize: 13)),
-              ),
-          ],
-          onChanged: _busy
-              ? null
-              : (value) => _detail(() {
-                  _customLead = value == '自定义';
-                  if (!_customLead) _early = EarlyReminder.presets[value];
-                }),
-        ),
-        if (_customLead)
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  key: const Key('custom-lead-amount'),
-                  enabled: !_busy,
-                  controller: _leadAmount,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                ),
-              ),
-              const SizedBox(width: 8),
-              DropdownButton<LeadUnit>(
-                value: _early?.unit ?? LeadUnit.minute,
-                items: [
-                  for (final unit in LeadUnit.values)
-                    DropdownMenuItem(
-                      value: unit,
-                      child: Text(switch (unit) {
-                        LeadUnit.minute => '分钟前',
-                        LeadUnit.hour => '小时前',
-                        LeadUnit.day => '天前',
-                        LeadUnit.week => '周前',
-                        LeadUnit.month => '个月前',
-                      }),
-                    ),
-                ],
-                onChanged: _busy
-                    ? null
-                    : (unit) => _detail(
-                        () => _early = EarlyReminder(
-                          int.tryParse(_leadAmount.text) ?? 5,
-                          unit!,
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: Tooltip(
+                      message: reminderDate(_due),
+                      child: TextButton.icon(
+                        key: const Key('reminder-date'),
+                        style: dateStyle,
+                        onPressed: _busy
+                            ? null
+                            : () async {
+                                final date = await showDatePicker(
+                                  context: context,
+                                  builder: (context, child) => Padding(
+                                    padding: const EdgeInsets.only(left: 56),
+                                    child: child,
+                                  ),
+                                  initialDate: _due,
+                                  firstDate: DateTime(
+                                    _due.year < 1970 ? _due.year : 1970,
+                                  ),
+                                  lastDate: DateTime(
+                                    (_due.year > 2126 ? _due.year : 2126) + 1,
+                                  ),
+                                );
+                                if (date != null) {
+                                  _detail(
+                                    () => _due = DateTime(
+                                      date.year,
+                                      date.month,
+                                      date.day,
+                                      _due.hour,
+                                      _due.minute,
+                                    ),
+                                  );
+                                }
+                              },
+                        icon: const Icon(
+                          Icons.calendar_today_outlined,
+                          size: 14,
+                        ),
+                        label: Text(
+                          '${_due.month}月${_due.day}日',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    flex: 2,
+                    child: TextButton.icon(
+                      key: const Key('reminder-time'),
+                      style: dateStyle,
+                      onPressed: _busy
+                          ? null
+                          : () => _change(() => _showTime = !_showTime),
+                      icon: const Icon(Icons.schedule, size: 14),
+                      label: Text(reminderTime(_due), maxLines: 1),
+                    ),
+                  ),
+                ],
               ),
+              if (_showTime) ...[
+                const SizedBox(height: 8),
+                ReminderClockWheels(
+                  value: _due,
+                  enabled: !_busy,
+                  onChanged: (date) => _detail(() => _due = date),
+                ),
+              ],
             ],
           ),
-        const SizedBox(height: 8),
+        ),
+        const SizedBox(height: 12),
+        _ReminderSettingCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    '重复',
+                    style: TextStyle(fontSize: 13, color: colors.muted),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _ReminderChoice<String>(
+                      key: const Key('reminder-repeat'),
+                      value: _customRepeat ? '自定义' : repeatPreset ?? '自定义',
+                      labels: {
+                        for (final label in [
+                          ...ReminderRule.presets.keys,
+                          '自定义',
+                        ])
+                          label: label,
+                      },
+                      onChanged: _busy
+                          ? null
+                          : (value) => _detail(() {
+                              _customRepeat = value == '自定义';
+                              _error = null;
+                              if (!_customRepeat) {
+                                _rule = ReminderRule.presets[value]!;
+                              } else {
+                                _rule = ReminderRule(
+                                  _rule.unit == RepeatUnit.none
+                                      ? RepeatUnit.day
+                                      : _rule.unit,
+                                  interval: _rule.interval,
+                                  weekdays: _rule.weekdays,
+                                );
+                                _interval.text = '${_rule.interval}';
+                              }
+                            }),
+                    ),
+                  ),
+                ],
+              ),
+              if (_customRepeat) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const Text('每', style: TextStyle(fontSize: 13)),
+                    _reminderNumber(
+                      'custom-repeat-interval',
+                      _interval,
+                      '重复间隔',
+                    ),
+                    SizedBox(
+                      width: 68,
+                      child: _ReminderChoice<RepeatUnit>(
+                        value: _rule.unit,
+                        labels: const {
+                          RepeatUnit.minute: '分钟',
+                          RepeatUnit.hour: '小时',
+                          RepeatUnit.day: '天',
+                          RepeatUnit.week: '周',
+                          RepeatUnit.month: '个月',
+                          RepeatUnit.year: '年',
+                        },
+                        onChanged: _busy
+                            ? null
+                            : (unit) => _detail(
+                                () => _rule = ReminderRule(
+                                  unit,
+                                  interval: _rule.interval,
+                                  weekdays: unit == RepeatUnit.week
+                                      ? _rule.weekdays
+                                      : const [],
+                                ),
+                              ),
+                      ),
+                    ),
+                    const Text('一次', style: TextStyle(fontSize: 13)),
+                  ],
+                ),
+                if (_rule.unit == RepeatUnit.week) ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: [
+                      for (var day = 1; day <= 7; day++)
+                        FilterChip(
+                          label: Text(
+                            _weekdays[day - 1],
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                          selected: _rule.weekdays.contains(day),
+                          showCheckmark: false,
+                          onSelected: _busy
+                              ? null
+                              : (selected) => _detail(() {
+                                  final days = _rule.weekdays.toSet();
+                                  selected ? days.add(day) : days.remove(day);
+                                  _rule = ReminderRule(
+                                    RepeatUnit.week,
+                                    interval: _rule.interval,
+                                    weekdays: days.toList()..sort(),
+                                  );
+                                }),
+                        ),
+                    ],
+                  ),
+                ],
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        _ReminderSettingCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    '提前提醒',
+                    style: TextStyle(fontSize: 13, color: colors.muted),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _ReminderChoice<String>(
+                      key: const Key('early-reminder'),
+                      value: _customLead ? '自定义' : leadPreset ?? '自定义',
+                      labels: {
+                        for (final label in [
+                          ...EarlyReminder.presets.keys,
+                          '自定义',
+                        ])
+                          label: label,
+                      },
+                      onChanged: _busy
+                          ? null
+                          : (value) => _detail(() {
+                              _customLead = value == '自定义';
+                              _error = null;
+                              if (!_customLead) {
+                                _early = EarlyReminder.presets[value];
+                              }
+                              if (_early != null) {
+                                _leadAmount.text = '${_early!.amount}';
+                              }
+                            }),
+                    ),
+                  ),
+                ],
+              ),
+              if (_customLead) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const Text('提前', style: TextStyle(fontSize: 13)),
+                    _reminderNumber('custom-lead-amount', _leadAmount, '提前时间'),
+                    SizedBox(
+                      width: 68,
+                      child: _ReminderChoice<LeadUnit>(
+                        value: _early?.unit ?? LeadUnit.minute,
+                        labels: const {
+                          LeadUnit.minute: '分钟',
+                          LeadUnit.hour: '小时',
+                          LeadUnit.day: '天',
+                          LeadUnit.week: '周',
+                          LeadUnit.month: '个月',
+                        },
+                        onChanged: _busy
+                            ? null
+                            : (unit) => _detail(
+                                () => _early = EarlyReminder(
+                                  int.tryParse(_leadAmount.text) ?? 5,
+                                  unit,
+                                ),
+                              ),
+                      ),
+                    ),
+                    const Text('提醒', style: TextStyle(fontSize: 13)),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
         if (_error != null)
-          Text(
-            _error!,
-            style: const TextStyle(color: Color(0xFFA65345), fontSize: 12),
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Text(
+              _error!,
+              style: const TextStyle(color: Color(0xFFA65345), fontSize: 12),
+            ),
           ),
       ],
     );
@@ -1362,4 +1512,77 @@ class _DottedCirclePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _DottedCirclePainter oldDelegate) =>
       oldDelegate.color != color;
+}
+
+class _ReminderSettingCard extends StatelessWidget {
+  const _ReminderSettingCard({required this.child});
+  final Widget child;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: Color.lerp(
+        context.appColors.paper.withValues(alpha: 1),
+        context.appColors.panel.withValues(alpha: 1),
+        0.65,
+      ),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: context.appColors.line.withValues(alpha: 0.4)),
+    ),
+    child: child,
+  );
+}
+
+/// Keep every preset while bounding the menu to a compact, scrollable list.
+class _ReminderChoice<T> extends StatelessWidget {
+  const _ReminderChoice({
+    super.key,
+    required this.value,
+    required this.labels,
+    required this.onChanged,
+  });
+  final T value;
+  final Map<T, String> labels;
+  final ValueChanged<T>? onChanged;
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 36,
+    padding: const EdgeInsets.symmetric(horizontal: 8),
+    decoration: BoxDecoration(
+      color: context.appColors.paper.withValues(alpha: 1),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: DropdownButtonHideUnderline(
+      child: DropdownButton<T>(
+        value: value,
+        isExpanded: true,
+        isDense: true,
+        elevation: 3,
+        menuMaxHeight: math.min(240, MediaQuery.sizeOf(context).height * 0.4),
+        itemHeight: 48,
+        borderRadius: BorderRadius.circular(12),
+        dropdownColor: context.appColors.paper.withValues(alpha: 1),
+        focusColor: context.appColors.hover,
+        style: Theme.of(context).textTheme.bodyMedium!
+            .copyWith(fontSize: 13, color: context.appColors.ink),
+        icon: Icon(Icons.expand_more, size: 16, color: context.appColors.muted),
+        items: [
+          for (final entry in labels.entries)
+            DropdownMenuItem<T>(
+              value: entry.key,
+              child: Text(
+                entry.value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        ],
+        onChanged: onChanged == null
+            ? null
+            : (next) {
+                if (next != null) onChanged!(next);
+              },
+      ),
+    ),
+  );
 }

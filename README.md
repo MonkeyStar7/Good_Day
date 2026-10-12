@@ -4,10 +4,10 @@
 
 ## 下载
 
-当前版本 **1.4.9**，适用于 Windows 10／11 64 位，无需安装开发环境。
+当前版本 **1.4.10**，适用于 Windows 10／11 64 位，无需安装开发环境。
 
-- [下载安装包](https://github.com/MonkeyStar7/Good_Day/releases/download/v1.4.9/Good-Day-1.4.9-windows-x64-setup.exe)
-- [下载免安装版](https://github.com/MonkeyStar7/Good_Day/releases/download/v1.4.9/Good-Day-1.4.9-windows-x64.zip)
+- [下载安装包](https://github.com/MonkeyStar7/Good_Day/releases/download/v1.4.10/Good-Day-1.4.10-windows-x64-setup.exe)
+- [下载免安装版](https://github.com/MonkeyStar7/Good_Day/releases/download/v1.4.10/Good-Day-1.4.10-windows-x64.zip)
 - [版本与校验文件](https://github.com/MonkeyStar7/Good_Day/releases/latest)
 
 ## 可以做什么
