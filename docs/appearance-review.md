@@ -1,4 +1,4 @@
-# 1.4.8 本机试用
+# 1.4.8 外观与界面大小
 
 在设置 → 外观中选择界面大小：小 75%、中 100%、大 150%。窗口外框、文字、图标、按钮、间距、输入区和弹窗一起缩放；默认保持 100%，选择会随外观设置保存。手动拉伸过的窗口按比例调整，切换小档会缩小窗口，大档限制在当前屏幕可用区域内。
 
@@ -8,6 +8,6 @@
 
 设计参考：[微软 Acrylic 材质](https://learn.microsoft.com/en-us/windows/apps/design/style/acrylic)，[Windows 系统背景材质](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwm_systembackdrop_type)。
 
-本版只在本机打包、安装，不向 GitHub 上传代码、标签或安装包。安装结构仍为 Good Day/App 和 Good Day/MD，升级沿用当前数据位置。
+安装结构为 Good Day/App 和 Good Day/MD，升级沿用当前数据位置。
 
 主面板与设置页使用更大的统一圆角；历史中的已完成／未完成筛选按钮等宽、等高，采用主题中的柔和选中状态。有子任务时减少主任务下方间距。
