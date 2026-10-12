@@ -762,7 +762,15 @@ void main() {
     await tester.tap(find.byKey(const Key('settings-button')));
     await _flushMicrotasks(tester);
     expect(find.text('设置'), findsWidgets);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('choose-vault-button')),
+      220,
+      scrollable: find.byType(Scrollable).last,
+    );
     expect(find.byKey(const Key('choose-vault-button')), findsOneWidget);
+    await tester.ensureVisible(
+      find.byKey(const Key('launch-at-startup-option')),
+    );
     expect(
       tester
           .widget<Switch>(find.byKey(const Key('launch-at-startup-checkbox')))
@@ -780,7 +788,11 @@ void main() {
       isTrue,
     );
 
-    await tester.ensureVisible(find.byKey(const Key('font-picker-button')));
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('font-picker-button')),
+      -220,
+      scrollable: find.byType(Scrollable).last,
+    );
     await tester.tap(find.byKey(const Key('font-picker-button')));
     await _flushMicrotasks(tester);
     await tester.scrollUntilVisible(

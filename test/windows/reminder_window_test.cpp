@@ -1,4 +1,5 @@
 #include "reminder_window.h"
+#include <dwmapi.h>
 #include <flutter/standard_method_codec.h>
 #include <fstream>
 #include <iostream>
@@ -59,16 +60,20 @@ public:
   }
 };
 void Capture(HWND window, const char *path) {
+  const auto awareness =
+      SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
   RedrawWindow(window, nullptr, nullptr,
                RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
   RECT bounds{};
   GetWindowRect(window, &bounds);
   const int width = bounds.right - bounds.left,
             height = bounds.bottom - bounds.top;
-  HDC source = GetWindowDC(window), destination = CreateCompatibleDC(source);
+  DwmFlush();
+  HDC source = GetDC(nullptr), destination = CreateCompatibleDC(source);
   HBITMAP bitmap = CreateCompatibleBitmap(source, width, height);
   HGDIOBJ original = SelectObject(destination, bitmap);
-  BitBlt(destination, 0, 0, width, height, source, 0, 0, SRCCOPY);
+  BitBlt(destination, 0, 0, width, height, source, bounds.left, bounds.top,
+         SRCCOPY | CAPTUREBLT);
   SelectObject(destination, original);
   BITMAPINFO info{};
   info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -92,7 +97,8 @@ void Capture(HWND window, const char *path) {
   Check(output.good(), "capture write failed");
   DeleteObject(bitmap);
   DeleteDC(destination);
-  ReleaseDC(window, source);
+  ReleaseDC(nullptr, source);
+  SetThreadDpiAwarenessContext(awareness);
 }
 int main(int argc, char **argv) {
   HWND owner = CreateWindowW(L"STATIC", L"Good Day isolated native test",
@@ -154,6 +160,34 @@ int main(int argc, char **argv) {
     SendMessageW(popup, WM_COMMAND, MAKEWPARAM(102, BN_CLICKED), 0);
     Check(messenger.action == 10, "snooze action incorrect");
     messenger.Call("dismiss");
+    for (double scale : {0.75, 1.0, 1.5}) {
+      auto appearance = args;
+      appearance[flutter::EncodableValue("interfaceScale")] =
+          flutter::EncodableValue(scale);
+      appearance[flutter::EncodableValue("glassTransparency")] =
+          flutter::EncodableValue(0.6);
+      appearance[flutter::EncodableValue("accentRgb")] =
+          flutter::EncodableValue(0x54606D);
+      messenger.Call("show", appearance);
+      popup = CurrentReminder();
+      Check(popup && IsWindowVisible(popup), "scaled reminder did not open");
+      RECT scaled{}, button{};
+      GetWindowRect(popup, &scaled);
+      GetWindowRect(GetDlgItem(popup, 104), &button);
+      const int available = monitor.rcWork.right - monitor.rcWork.left;
+      const int expected = std::min(static_cast<int>(600 * scale),
+                                    available - static_cast<int>(24 * scale));
+      Check(abs((scaled.right - scaled.left) - expected) <= 3,
+            "reminder scale incorrect");
+      Check(button.left >= scaled.left && button.right <= scaled.right &&
+                button.top >= scaled.top && button.bottom <= scaled.bottom,
+            "scaled action button is clipped");
+      if (argc > 1 && scale == 1.5)
+        Capture(popup, argv[1]);
+      SendMessageW(popup, WM_COMMAND, MAKEWPARAM(104, BN_CLICKED), 0);
+      Check(messenger.action == 0, "scaled reminder acknowledgement failed");
+      messenger.Call("dismiss");
+    }
     Check(!IsWindow(popup) && IsWindowEnabled(owner) && !IsWindowVisible(owner),
           "dismiss did not restore hidden owner");
     messenger.Call("show", args);

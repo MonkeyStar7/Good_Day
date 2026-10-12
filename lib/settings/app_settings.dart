@@ -27,6 +27,7 @@ enum AppFont {
 }
 
 enum AppAccent {
+  white('white', '白色', whiteGlassAccent),
   cloudYellow('cloud_yellow', '云朵黄', cloudYellowAccent),
   graphite('graphite', '石墨', Color(0xFF343A36)),
   forest('forest', '松绿', Color(0xFF365D46)),
@@ -44,8 +45,11 @@ enum AppAccent {
   final String key;
   final String label;
   final Color color;
-  Color get swatchColor =>
-      this == AppAccent.cloudYellow ? const Color(0xFFFFF2CA) : color;
+  Color get swatchColor => this == AppAccent.white
+      ? Colors.white
+      : this == AppAccent.cloudYellow
+      ? const Color(0xFFFFF2CA)
+      : color;
 
   static AppAccent fromKey(String? key) => values.firstWhere(
     (accent) => accent.key == key,
@@ -53,25 +57,67 @@ enum AppAccent {
   );
 }
 
+enum InterfaceSize {
+  small('small', '小', 0.75),
+  medium('medium', '中', 1),
+  large('large', '大', 1.5);
+
+  const InterfaceSize(this.key, this.label, this.scale);
+  final String key;
+  final String label;
+  final double scale;
+  static InterfaceSize fromKey(Object? key) => values.firstWhere(
+    (size) => size.key == key,
+    orElse: () => InterfaceSize.medium,
+  );
+}
+
 class AppSettings {
   const AppSettings({
     this.font = AppFont.appleStyle,
     this.accent = AppAccent.forest,
+    this.interfaceSize = InterfaceSize.medium,
+    this.glassTransparency = 0.22,
   });
 
   final AppFont font;
   final AppAccent accent;
+  final InterfaceSize interfaceSize;
 
-  AppSettings copyWith({AppFont? font, AppAccent? accent}) {
-    return AppSettings(font: font ?? this.font, accent: accent ?? this.accent);
+  /// Only the background is translucent; text and controls remain opaque.
+  final double glassTransparency;
+
+  AppSettings copyWith({
+    AppFont? font,
+    AppAccent? accent,
+    InterfaceSize? interfaceSize,
+    double? glassTransparency,
+  }) {
+    return AppSettings(
+      font: font ?? this.font,
+      accent: accent ?? this.accent,
+      interfaceSize: interfaceSize ?? this.interfaceSize,
+      glassTransparency: glassTransparency ?? this.glassTransparency,
+    );
   }
 
-  Map<String, Object> toJson() => {'font': font.key, 'accent': accent.key};
+  Map<String, Object> toJson() => {
+    'font': font.key,
+    'accent': accent.key,
+    'interfaceSize': interfaceSize.key,
+    'glassTransparency': glassTransparency,
+  };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     return AppSettings(
       font: AppFont.fromKey(json['font'] as String?),
       accent: AppAccent.fromKey(json['accent'] as String?),
+      interfaceSize: InterfaceSize.fromKey(json['interfaceSize']),
+      glassTransparency:
+          json['glassTransparency'] is num &&
+              (json['glassTransparency'] as num).isFinite
+          ? (json['glassTransparency'] as num).toDouble().clamp(0, 0.75)
+          : 0.22,
     );
   }
 }
@@ -112,6 +158,7 @@ class AppSettingsController extends ChangeNotifier {
 
   AppSettingsStore? store;
   AppSettings settings;
+  Future<void> Function(InterfaceSize size)? prepareInterfaceSize;
   final _operations = OperationQueue();
   Future<void> get idle => _operations.idle;
 
@@ -148,5 +195,24 @@ class AppSettingsController extends ChangeNotifier {
     final nextStore = AppSettingsStore(vaultDirectory);
     await nextStore.save(settings);
     store = nextStore;
+  });
+
+  Future<void> setInterfaceSize(InterfaceSize size) =>
+      _operations.run(() async {
+        if (settings.interfaceSize == size) return;
+        await prepareInterfaceSize?.call(size);
+        final next = settings.copyWith(interfaceSize: size);
+        await store?.save(next);
+        settings = next;
+        notifyListeners();
+      });
+
+  Future<void> setGlassTransparency(double value) => _operations.run(() async {
+    if (!value.isFinite) return;
+    final next = settings.copyWith(glassTransparency: value.clamp(0, 0.75));
+    if (settings.glassTransparency == next.glassTransparency) return;
+    await store?.save(next);
+    settings = next;
+    notifyListeners();
   });
 }

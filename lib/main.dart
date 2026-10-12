@@ -10,6 +10,7 @@ import 'package:flutter_acrylic/flutter_acrylic.dart' as acrylic;
 import 'package:window_manager/window_manager.dart';
 
 import 'app_colors.dart';
+import 'app_appearance.dart';
 import 'backup_page.dart';
 import 'data/safe_file.dart';
 import 'edit_safety.dart';
@@ -187,9 +188,54 @@ Future<void> _startApplication(List<String> arguments) async {
     // Frameless keeps resizing while making the transparent gaps border-free.
     await windowManager.setAsFrameless();
     await acrylic.Window.setEffect(
-      effect: acrylic.WindowEffect.transparent,
-      color: Colors.transparent,
+      effect: acrylic.WindowEffect.acrylic,
+      color: Colors.white.withValues(alpha: 0.08),
+      dark: false,
     );
+    Future<void> applyAppearance([InterfaceSize? requestedSize]) async {
+      final settings = settingsController.settings;
+      desktopExperience.interfaceScale = settings.interfaceSize.scale;
+      desktopExperience.glassTransparency = settings.glassTransparency;
+      final scale = (requestedSize ?? settings.interfaceSize).scale;
+      // Preserve room for controls at 150%, rather than clipping their layout.
+      final minimum = Size(396 * math.max(1, scale), 500 * math.max(1, scale));
+      await windowManager.setMinimumSize(minimum);
+      final current = await windowManager.getSize();
+      if (current.width < minimum.width || current.height < minimum.height) {
+        final position = await windowManager.getPosition();
+        await windowManager.setSize(
+          Size(
+            math.max(current.width, minimum.width),
+            math.max(current.height, minimum.height),
+          ),
+        );
+        // Retain the right edge when a window near the screen edge grows.
+        await windowManager.setPosition(
+          Offset(
+            position.dx - math.max(0, minimum.width - current.width),
+            position.dy,
+          ),
+        );
+      }
+    }
+
+    settingsController.prepareInterfaceSize = applyAppearance;
+    await applyAppearance();
+    final appearanceOperations = OperationQueue();
+    var lastSize = settingsController.settings.interfaceSize;
+    settingsController.addListener(() {
+      desktopExperience.interfaceScale =
+          settingsController.settings.interfaceSize.scale;
+      desktopExperience.glassTransparency =
+          settingsController.settings.glassTransparency;
+      if (lastSize == settingsController.settings.interfaceSize) return;
+      lastSize = settingsController.settings.interfaceSize;
+      unawaited(
+        appearanceOperations.run(applyAppearance).catchError((Object error) {
+          debugPrint('Window appearance update failed: $error');
+        }),
+      );
+    });
     await windowManager.setHasShadow(false);
     await windowManager.setAlignment(Alignment.topRight);
     final aligned = await windowManager.getPosition();
@@ -230,7 +276,10 @@ class GoodDayApp extends StatelessWidget {
       animation: settingsController,
       builder: (context, _) {
         final settings = settingsController.settings;
-        final colors = AppColors(settings.accent.color);
+        final colors = AppColors(
+          settings.accent.color,
+          transparency: settings.glassTransparency,
+        );
         return MaterialApp(
           locale: const Locale('zh', 'CN'),
           supportedLocales: const [Locale('zh', 'CN')],
@@ -239,6 +288,7 @@ class GoodDayApp extends StatelessWidget {
           title: 'Good Day',
           theme: ThemeData(
             useMaterial3: true,
+            extensions: [AppGlassStyle(settings.glassTransparency)],
             scaffoldBackgroundColor: Colors.transparent,
             canvasColor: colors.paper,
             datePickerTheme: DatePickerThemeData(
@@ -349,8 +399,10 @@ class GoodDayApp extends StatelessWidget {
               behavior: SnackBarBehavior.floating,
             ),
           ),
-          builder: (context, child) =>
-              _DesktopScope(desktop: desktopExperience, child: child!),
+          builder: (context, child) => AppViewport(
+            scale: settings.interfaceSize.scale,
+            child: _DesktopScope(desktop: desktopExperience, child: child!),
+          ),
           home: HomePage(
             repository: repository,
             settingsController: settingsController,
@@ -1248,79 +1300,88 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               reminderWorkflow: _repository.usesReminderWorkflow,
             ),
             Expanded(
-              child: Container(
-                key: const Key('main-paper'),
-                decoration: BoxDecoration(
-                  color: context.appColors.paper,
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(12),
-                    bottomLeft: Radius.circular(12),
-                    topRight: Radius.circular(12),
-                    bottomRight: Radius.circular(12),
+              child: GlassSurface(
+                child: Container(
+                  key: const Key('main-paper'),
+                  decoration: BoxDecoration(
+                    color: context.appColors.paper,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(12),
+                      bottomLeft: Radius.circular(12),
+                      topRight: Radius.circular(12),
+                      bottomRight: Radius.circular(12),
+                    ),
+                    border: Border.all(color: context.appColors.line),
                   ),
-                  border: Border.all(color: context.appColors.line),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Column(
-                  children: [
-                    _WindowBar(
-                      onSettings: _openSettings,
-                      onClose: widget.desktopExperience == null
-                          ? null
-                          : () => unawaited(
-                              widget.desktopExperience!.hideWindow(),
-                            ),
-                    ),
-                    Expanded(
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          final inset = constraints.maxWidth < 320
-                              ? 14.0
-                              : 24.0;
-                          return Padding(
-                            padding: EdgeInsets.fromLTRB(inset, 24, inset, 16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                if (_view != _HomeView.today &&
-                                    !(_repository.usesReminderWorkflow &&
-                                        _view == _HomeView.plans)) ...[
-                                  _ModeHeader(
-                                    mode: _view,
-                                    date: _displayDate,
-                                    period: _taskPeriod,
-                                    completed: completed,
-                                    total: _visibleTasks.length,
-                                    planCount: _plans.length,
-                                    goalCount: _goals.length,
-                                  ),
-                                  const SizedBox(height: 24),
-                                ],
-                                if (_repository.unreadableFiles.isNotEmpty)
-                                  TextButton(
-                                    key: const Key('unreadable-files-warning'),
-                                    onPressed: _showUnreadableFiles,
-                                    child: Text(
-                                      '${_repository.unreadableFiles.length} 个文件无法读取，点击查看',
-                                    ),
-                                  ),
-                                Expanded(child: _buildCurrentArea()),
-                                Divider(
-                                  height: 1,
-                                  thickness: 0.7,
-                                  color: context.appColors.line,
-                                ),
-                                const SizedBox(height: 12),
-                                _VaultStatus(
-                                  path: _repository.vaultDirectory.path,
-                                ),
-                              ],
-                            ),
-                          );
-                        },
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    children: [
+                      _WindowBar(
+                        onSettings: _openSettings,
+                        onClose: widget.desktopExperience == null
+                            ? null
+                            : () => unawaited(
+                                widget.desktopExperience!.hideWindow(),
+                              ),
                       ),
-                    ),
-                  ],
+                      Expanded(
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final inset = constraints.maxWidth < 320
+                                ? 14.0
+                                : 24.0;
+                            return Padding(
+                              padding: EdgeInsets.fromLTRB(
+                                inset,
+                                24,
+                                inset,
+                                16,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  if (_view != _HomeView.today &&
+                                      !(_repository.usesReminderWorkflow &&
+                                          _view == _HomeView.plans)) ...[
+                                    _ModeHeader(
+                                      mode: _view,
+                                      date: _displayDate,
+                                      period: _taskPeriod,
+                                      completed: completed,
+                                      total: _visibleTasks.length,
+                                      planCount: _plans.length,
+                                      goalCount: _goals.length,
+                                    ),
+                                    const SizedBox(height: 24),
+                                  ],
+                                  if (_repository.unreadableFiles.isNotEmpty)
+                                    TextButton(
+                                      key: const Key(
+                                        'unreadable-files-warning',
+                                      ),
+                                      onPressed: _showUnreadableFiles,
+                                      child: Text(
+                                        '${_repository.unreadableFiles.length} 个文件无法读取，点击查看',
+                                      ),
+                                    ),
+                                  Expanded(child: _buildCurrentArea()),
+                                  Divider(
+                                    height: 1,
+                                    thickness: 0.7,
+                                    color: context.appColors.line,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  _VaultStatus(
+                                    path: _repository.vaultDirectory.path,
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -4497,6 +4558,7 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
+  double? _glassDraft;
   late String _vaultPath;
   bool _switchingVault = false;
   bool _deleteSourceAfterMigration = false;
@@ -4625,248 +4687,343 @@ class _SettingsPageState extends State<SettingsPage> {
       final busy = _loadingLaunchAtStartup || _changingLaunchAtStartup;
       return Scaffold(
         backgroundColor: Colors.transparent,
-        body: Container(
-          decoration: BoxDecoration(
-            color: context.appColors.paper,
-            border: Border.all(color: context.appColors.line),
-          ),
-          child: Column(
-            children: [
-              _WindowBar(
-                title: '设置',
-                onBack: () => Navigator.of(context).pop(),
-              ),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
-                  children: [
-                    Text(
-                      '设置',
-                      style: TextStyle(
-                        color: context.appColors.ink,
-                        fontSize: 30,
-                        height: 1.3,
-                        fontWeight: FontWeight.w500,
+        body: GlassSurface(
+          child: Container(
+            decoration: BoxDecoration(
+              color: context.appColors.paper,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: context.appColors.line),
+            ),
+            child: Column(
+              children: [
+                _WindowBar(
+                  title: '设置',
+                  onBack: () => Navigator.of(context).pop(),
+                ),
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+                    children: [
+                      Text(
+                        '设置',
+                        style: TextStyle(
+                          color: context.appColors.ink,
+                          fontSize: 30,
+                          height: 1.3,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 20),
-                    const _SettingsSectionTitle(label: '外观'),
-                    const SizedBox(height: 8),
-                    _PreferenceRow(
-                      key: const Key('font-picker-button'),
-                      label: '字体',
-                      value: settings.font.label,
-                      onTap: () =>
-                          setState(() => _fontsExpanded = !_fontsExpanded),
-                      trailing: Icon(
-                        _fontsExpanded
-                            ? Icons.keyboard_arrow_up
-                            : Icons.chevron_right,
-                        size: 16,
-                        color: context.appColors.muted,
+                      const SizedBox(height: 20),
+                      const _SettingsSectionTitle(label: '外观'),
+                      const SizedBox(height: 8),
+                      _PreferenceRow(
+                        key: const Key('font-picker-button'),
+                        label: '字体',
+                        value: settings.font.label,
+                        onTap: () =>
+                            setState(() => _fontsExpanded = !_fontsExpanded),
+                        trailing: Icon(
+                          _fontsExpanded
+                              ? Icons.keyboard_arrow_up
+                              : Icons.chevron_right,
+                          size: 16,
+                          color: context.appColors.muted,
+                        ),
                       ),
-                    ),
-                    if (_fontsExpanded)
-                      Container(
-                        color: context.appColors.panel,
-                        child: Column(
-                          children: [
-                            for (final font in AppFont.values)
-                              _FontOption(
-                                option: font,
-                                selected: settings.font == font,
-                                accent: settings.accent.color,
-                                onTap: () async {
-                                  await widget.controller.setFont(font);
-                                  if (mounted) {
-                                    setState(() => _fontsExpanded = false);
-                                  }
-                                },
+                      if (_fontsExpanded)
+                        Container(
+                          color: context.appColors.panel,
+                          child: Column(
+                            children: [
+                              for (final font in AppFont.values)
+                                _FontOption(
+                                  option: font,
+                                  selected: settings.font == font,
+                                  accent: settings.accent.color,
+                                  onTap: () async {
+                                    await widget.controller.setFont(font);
+                                    if (mounted) {
+                                      setState(() => _fontsExpanded = false);
+                                    }
+                                  },
+                                ),
+                              Padding(
+                                padding: EdgeInsets.all(16),
+                                child: Text(
+                                  '专注当下，慢慢完成。\nGood day, one thing at a time.',
+                                  style: TextStyle(
+                                    color: context.appColors.muted,
+                                    fontSize: 12,
+                                    height: 1.7,
+                                  ),
+                                ),
                               ),
-                            Padding(
-                              padding: EdgeInsets.all(16),
+                            ],
+                          ),
+                        ),
+                      const SizedBox(height: 12),
+                      Text(
+                        '界面大小',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: context.appColors.muted,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final size in InterfaceSize.values)
+                            ChoiceChip(
+                              key: Key('interface-size-${size.key}'),
+                              label: Text(
+                                '${size.label} ${(size.scale * 100).round()}%',
+                              ),
+                              selected: settings.interfaceSize == size,
+                              onSelected: (_) async {
+                                try {
+                                  await widget.controller.setInterfaceSize(
+                                    size,
+                                  );
+                                } catch (_) {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('界面大小未能保存，请重试'),
+                                      ),
+                                    );
+                                  }
+                                }
+                              },
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '毛玻璃透明度',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: context.appColors.muted,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            '${((_glassDraft ?? settings.glassTransparency) * 100).round()}%',
+                            key: const Key('glass-transparency-label'),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: context.appColors.ink,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Slider(
+                        key: const Key('glass-transparency-slider'),
+                        value: _glassDraft ?? settings.glassTransparency,
+                        min: 0,
+                        max: 0.75,
+                        divisions: 15,
+                        label:
+                            '${((_glassDraft ?? settings.glassTransparency) * 100).round()}%',
+                        onChanged: (value) =>
+                            setState(() => _glassDraft = value),
+                        onChangeEnd: (value) async {
+                          try {
+                            await widget.controller.setGlassTransparency(value);
+                          } catch (_) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('透明度未能保存，请重试')),
+                              );
+                            }
+                          } finally {
+                            if (mounted) setState(() => _glassDraft = null);
+                          }
+                        },
+                      ),
+                      Text(
+                        '越向右越通透；文字和图标保持清晰。',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: context.appColors.muted,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        '主题颜色',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: context.appColors.muted,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 4,
+                        runSpacing: 6,
+                        children: [
+                          for (final accent in AppAccent.values)
+                            _AccentOption(
+                              option: accent,
+                              selected: settings.accent == accent,
+                              onTap: () => widget.controller.setAccent(accent),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Divider(height: 1, color: context.appColors.line),
+                      const SizedBox(height: 20),
+                      const _SettingsSectionTitle(label: '桌面'),
+                      const SizedBox(height: 8),
+                      if (widget.onOpenLegacyReminders != null)
+                        _PreferenceRow(
+                          key: const Key('legacy-reminders-button'),
+                          label: '已有独立提醒',
+                          subtitle: '管理旧版创建的提醒',
+                          onTap: widget.onOpenLegacyReminders,
+                          trailing: Icon(
+                            Icons.chevron_right,
+                            size: 16,
+                            color: context.appColors.muted,
+                          ),
+                        ),
+                      _PreferenceRow(
+                        key: const Key('launch-at-startup-option'),
+                        label: '开机启动',
+                        subtitle: '登录 Windows 后自动打开',
+                        onTap: busy || widget.onLaunchAtStartupChanged == null
+                            ? null
+                            : () => _changeLaunchAtStartup(!_launchAtStartup),
+                        trailing: busy
+                            ? const SizedBox.square(
+                                dimension: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 1.5,
+                                ),
+                              )
+                            : Switch(
+                                key: const Key('launch-at-startup-checkbox'),
+                                value: _launchAtStartup,
+                                onChanged:
+                                    widget.onLaunchAtStartupChanged == null
+                                    ? null
+                                    : _changeLaunchAtStartup,
+                              ),
+                      ),
+                      const _PreferenceRow(label: '关闭窗口', value: '隐藏到托盘'),
+                      Divider(height: 1, color: context.appColors.line),
+                      const SizedBox(height: 20),
+                      const _SettingsSectionTitle(label: '数据'),
+                      if (widget.onOpenBackups != null)
+                        _PreferenceRow(
+                          key: const Key('backups-button'),
+                          label: '数据备份',
+                          subtitle: '自动备份、手动备份与恢复',
+                          onTap: widget.onOpenBackups,
+                          trailing: Icon(
+                            Icons.chevron_right,
+                            size: 16,
+                            color: context.appColors.muted,
+                          ),
+                        ),
+                      const SizedBox(height: 8),
+                      _PreferenceRow(
+                        label: '存放文件夹',
+                        trailing: TextButton(
+                          key: const Key('choose-vault-button'),
+                          onPressed: _switchingVault ? null : _chooseVault,
+                          child: Text(_switchingVault ? '切换中…' : '更改'),
+                        ),
+                      ),
+                      Tooltip(
+                        message: _vaultPath,
+                        child: Text(
+                          _vaultPath,
+                          key: const Key('vault-path'),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: context.appColors.muted,
+                            fontSize: 12,
+                            height: 1.5,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      InkWell(
+                        key: const Key('delete-source-option'),
+                        onTap: _switchingVault
+                            ? null
+                            : () => setState(
+                                () => _deleteSourceAfterMigration =
+                                    !_deleteSourceAfterMigration,
+                              ),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 32,
+                              height: 40,
+                              child: Checkbox(
+                                key: const Key('delete-source-checkbox'),
+                                value: _deleteSourceAfterMigration,
+                                onChanged: _switchingVault
+                                    ? null
+                                    : (value) => setState(
+                                        () => _deleteSourceAfterMigration =
+                                            value ?? false,
+                                      ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
                               child: Text(
-                                '专注当下，慢慢完成。\nGood day, one thing at a time.',
+                                '迁移后删除原数据',
                                 style: TextStyle(
-                                  color: context.appColors.muted,
+                                  color: context.appColors.ink,
                                   fontSize: 12,
-                                  height: 1.7,
                                 ),
                               ),
                             ),
                           ],
                         ),
                       ),
-                    const SizedBox(height: 12),
-                    Text(
-                      '主题颜色',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: context.appColors.muted,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 4,
-                      runSpacing: 6,
-                      children: [
-                        for (final accent in AppAccent.values)
-                          _AccentOption(
-                            option: accent,
-                            selected: settings.accent == accent,
-                            onTap: () => widget.controller.setAccent(accent),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Divider(height: 1, color: context.appColors.line),
-                    const SizedBox(height: 20),
-                    const _SettingsSectionTitle(label: '桌面'),
-                    const SizedBox(height: 8),
-                    if (widget.onOpenLegacyReminders != null)
-                      _PreferenceRow(
-                        key: const Key('legacy-reminders-button'),
-                        label: '已有独立提醒',
-                        subtitle: '管理旧版创建的提醒',
-                        onTap: widget.onOpenLegacyReminders,
-                        trailing: Icon(
-                          Icons.chevron_right,
-                          size: 16,
-                          color: context.appColors.muted,
-                        ),
-                      ),
-                    _PreferenceRow(
-                      key: const Key('launch-at-startup-option'),
-                      label: '开机启动',
-                      subtitle: '登录 Windows 后自动打开',
-                      onTap: busy || widget.onLaunchAtStartupChanged == null
-                          ? null
-                          : () => _changeLaunchAtStartup(!_launchAtStartup),
-                      trailing: busy
-                          ? const SizedBox.square(
-                              dimension: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 1.5,
-                              ),
-                            )
-                          : Switch(
-                              key: const Key('launch-at-startup-checkbox'),
-                              value: _launchAtStartup,
-                              onChanged: widget.onLaunchAtStartupChanged == null
-                                  ? null
-                                  : _changeLaunchAtStartup,
-                            ),
-                    ),
-                    const _PreferenceRow(label: '关闭窗口', value: '隐藏到托盘'),
-                    Divider(height: 1, color: context.appColors.line),
-                    const SizedBox(height: 20),
-                    const _SettingsSectionTitle(label: '数据'),
-                    if (widget.onOpenBackups != null)
-                      _PreferenceRow(
-                        key: const Key('backups-button'),
-                        label: '数据备份',
-                        subtitle: '自动备份、手动备份与恢复',
-                        onTap: widget.onOpenBackups,
-                        trailing: Icon(
-                          Icons.chevron_right,
-                          size: 16,
-                          color: context.appColors.muted,
-                        ),
-                      ),
-                    const SizedBox(height: 8),
-                    _PreferenceRow(
-                      label: '存放文件夹',
-                      trailing: TextButton(
-                        key: const Key('choose-vault-button'),
-                        onPressed: _switchingVault ? null : _chooseVault,
-                        child: Text(_switchingVault ? '切换中…' : '更改'),
-                      ),
-                    ),
-                    Tooltip(
-                      message: _vaultPath,
-                      child: Text(
-                        _vaultPath,
-                        key: const Key('vault-path'),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                      Text(
+                        '选择空文件夹会迁移数据，默认保留原位置。删除前会再次确认。',
                         style: TextStyle(
                           color: context.appColors.muted,
                           fontSize: 12,
-                          height: 1.5,
+                          height: 1.6,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    InkWell(
-                      key: const Key('delete-source-option'),
-                      onTap: _switchingVault
-                          ? null
-                          : () => setState(
-                              () => _deleteSourceAfterMigration =
-                                  !_deleteSourceAfterMigration,
-                            ),
-                      child: Row(
-                        children: [
-                          SizedBox(
-                            width: 32,
-                            height: 40,
-                            child: Checkbox(
-                              key: const Key('delete-source-checkbox'),
-                              value: _deleteSourceAfterMigration,
-                              onChanged: _switchingVault
-                                  ? null
-                                  : (value) => setState(
-                                      () => _deleteSourceAfterMigration =
-                                          value ?? false,
-                                    ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              '迁移后删除原数据',
-                              style: TextStyle(
-                                color: context.appColors.ink,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        ],
+                      const SizedBox(height: 12),
+                      _PreferenceRow(
+                        key: const Key('trash-button'),
+                        label: '垃圾桶',
+                        subtitle: '查看或恢复已删除内容',
+                        onTap: _openTrash,
+                        trailing: Icon(
+                          Icons.chevron_right,
+                          size: 16,
+                          color: context.appColors.muted,
+                        ),
                       ),
-                    ),
-                    Text(
-                      '选择空文件夹会迁移数据，默认保留原位置。删除前会再次确认。',
-                      style: TextStyle(
-                        color: context.appColors.muted,
-                        fontSize: 12,
-                        height: 1.6,
+                      Divider(height: 1, color: context.appColors.line),
+                      const SizedBox(height: 20),
+                      Text(
+                        '数据保存在本地 · Markdown',
+                        style: TextStyle(
+                          color: context.appColors.muted,
+                          fontSize: 12,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    _PreferenceRow(
-                      key: const Key('trash-button'),
-                      label: '垃圾桶',
-                      subtitle: '查看或恢复已删除内容',
-                      onTap: _openTrash,
-                      trailing: Icon(
-                        Icons.chevron_right,
-                        size: 16,
-                        color: context.appColors.muted,
-                      ),
-                    ),
-                    Divider(height: 1, color: context.appColors.line),
-                    const SizedBox(height: 20),
-                    Text(
-                      '数据保存在本地 · Markdown',
-                      style: TextStyle(
-                        color: context.appColors.muted,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       );
@@ -5352,6 +5509,9 @@ class _ColorChoice extends StatelessWidget {
               decoration: BoxDecoration(
                 color: color,
                 shape: BoxShape.circle,
+                border: color == Colors.white
+                    ? Border.all(color: context.appColors.line)
+                    : null,
                 boxShadow: selected
                     ? [
                         BoxShadow(

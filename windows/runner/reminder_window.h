@@ -27,6 +27,8 @@ private:
   HWND window_ = nullptr;
   std::array<HWND, 5> buttons_{};
   UINT dpi_ = 96;
+  double interface_scale_ = 1;
+  BYTE glass_alpha_ = 255;
   int accent_rgb_ = 0x365D46;
   bool saving_ = false;
   bool owner_enabled_ = true;

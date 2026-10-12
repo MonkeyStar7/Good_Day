@@ -1,3 +1,5 @@
+import 'app_appearance.dart';
+
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -751,55 +753,58 @@ class ReminderEditorState extends State<ReminderEditor>
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, update) {
           _optionsSetState = update;
-          return AlertDialog(
-            key: const Key('reminder-options-dialog'),
-            title: const Text('提醒设置', style: TextStyle(fontSize: 18)),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            contentPadding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-            content: SizedBox(
-              width: 300,
-              child: SingleChildScrollView(child: _reminderControls(context)),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('取消'),
+          return GlassSurface(
+            radius: 16,
+            child: AlertDialog(
+              key: const Key('reminder-options-dialog'),
+              title: const Text('提醒设置', style: TextStyle(fontSize: 18)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
               ),
-              FilledButton(
-                key: const Key('apply-reminder-options'),
-                onPressed: () {
-                  final interval = int.tryParse(_interval.text),
-                      amount = int.tryParse(_leadAmount.text);
-                  if (_customRepeat &&
-                      (interval == null || interval < 1 || interval > 999)) {
-                    update(() => _error = '重复间隔请输入 1～999');
-                    return;
-                  }
-                  if (_customLead &&
-                      (amount == null || amount < 1 || amount > 200)) {
-                    update(() => _error = '提前提醒请输入 1～200');
-                    return;
-                  }
-                  if (_customRepeat) {
-                    _rule = ReminderRule(
-                      _rule.unit,
-                      interval: interval!,
-                      weekdays: _rule.weekdays,
-                    );
-                  }
-                  if (_customLead) {
-                    _early = EarlyReminder(
-                      amount!,
-                      _early?.unit ?? LeadUnit.minute,
-                    );
-                  }
-                  Navigator.pop(dialogContext, true);
-                },
-                child: const Text('完成'),
+              contentPadding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+              content: SizedBox(
+                width: 300,
+                child: SingleChildScrollView(child: _reminderControls(context)),
               ),
-            ],
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  key: const Key('apply-reminder-options'),
+                  onPressed: () {
+                    final interval = int.tryParse(_interval.text),
+                        amount = int.tryParse(_leadAmount.text);
+                    if (_customRepeat &&
+                        (interval == null || interval < 1 || interval > 999)) {
+                      update(() => _error = '重复间隔请输入 1～999');
+                      return;
+                    }
+                    if (_customLead &&
+                        (amount == null || amount < 1 || amount > 200)) {
+                      update(() => _error = '提前提醒请输入 1～200');
+                      return;
+                    }
+                    if (_customRepeat) {
+                      _rule = ReminderRule(
+                        _rule.unit,
+                        interval: interval!,
+                        weekdays: _rule.weekdays,
+                      );
+                    }
+                    if (_customLead) {
+                      _early = EarlyReminder(
+                        amount!,
+                        _early?.unit ?? LeadUnit.minute,
+                      );
+                    }
+                    Navigator.pop(dialogContext, true);
+                  },
+                  child: const Text('完成'),
+                ),
+              ],
+            ),
           );
         },
       ),

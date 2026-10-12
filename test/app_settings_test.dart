@@ -1,10 +1,33 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:good_day/settings/app_settings.dart';
 import 'package:good_day/settings/vault_location_store.dart';
 
 void main() {
+  test(
+    'size changes wait for window preparation and retain settings on failure',
+    () async {
+      final controller = AppSettingsController.inMemory();
+      addTearDown(controller.dispose);
+      final ready = Completer<void>();
+      controller.prepareInterfaceSize = (_) => ready.future;
+      final change = controller.setInterfaceSize(InterfaceSize.large);
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.settings.interfaceSize, InterfaceSize.medium);
+      ready.complete();
+      await change;
+      expect(controller.settings.interfaceSize, InterfaceSize.large);
+      controller.prepareInterfaceSize = (_) async =>
+          throw StateError('window unavailable');
+      await expectLater(
+        controller.setInterfaceSize(InterfaceSize.small),
+        throwsStateError,
+      );
+      expect(controller.settings.interfaceSize, InterfaceSize.large);
+    },
+  );
   test('new installs use the Apple-style font preset by default', () {
     expect(const AppSettings().font, AppFont.appleStyle);
     expect(const AppSettings().accent, AppAccent.forest);
@@ -19,14 +42,39 @@ void main() {
     final store = AppSettingsStore(vault);
     const settings = AppSettings(
       font: AppFont.dengXian,
-      accent: AppAccent.forest,
+      accent: AppAccent.white,
+      interfaceSize: InterfaceSize.large,
+      glassTransparency: 0.6,
     );
     await store.save(settings);
 
     final loaded = await store.load();
     expect(loaded.font, AppFont.dengXian);
-    expect(loaded.accent, AppAccent.forest);
+    expect(loaded.accent, AppAccent.white);
+    expect(loaded.interfaceSize, InterfaceSize.large);
+    expect(loaded.glassTransparency, 0.6);
     expect(await store.file.exists(), isTrue);
+  });
+
+  test('old and invalid appearance settings have safe defaults', () {
+    expect(AppSettings.fromJson({}).interfaceSize, InterfaceSize.medium);
+    expect(AppSettings.fromJson({}).glassTransparency, 0.22);
+    expect(
+      AppSettings.fromJson({'interfaceSize': 'unknown'}).interfaceSize,
+      InterfaceSize.medium,
+    );
+    expect(
+      AppSettings.fromJson({'glassTransparency': 'broken'}).glassTransparency,
+      0.22,
+    );
+    expect(
+      AppSettings.fromJson({'glassTransparency': 4}).glassTransparency,
+      0.75,
+    );
+    expect(
+      AppSettings.fromJson({'glassTransparency': -1}).glassTransparency,
+      0,
+    );
   });
 
   test('selected vault location persists outside the vault', () async {

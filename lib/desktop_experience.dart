@@ -51,6 +51,8 @@ class SystemDesktopExperience extends DesktopExperience
   final ValueNotifier<int> _refreshRequests = ValueNotifier<int>(0);
   final ValueNotifier<bool> _windowPinned = ValueNotifier(false);
   bool _reminderOnTop = false;
+  double interfaceScale = 1;
+  double glassTransparency = 0.22;
   final _topmostOperations = OperationQueue();
   Future<bool> Function()? _saveGuard;
   static const _lifecycle = MethodChannel('good_day/lifecycle');
@@ -161,6 +163,8 @@ class SystemDesktopExperience extends DesktopExperience
     try {
       await _reminder.invokeMethod<void>('show', {
         'accentRgb': accentRgb,
+        'interfaceScale': interfaceScale,
+        'glassTransparency': glassTransparency,
         'title': event.title,
         'time': '事件时间：${eventDateTimeLabel(occurrence)}',
         'date':

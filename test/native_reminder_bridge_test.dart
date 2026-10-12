@@ -37,7 +37,10 @@ void main() {
         return null;
       });
       final saved = Completer<void>();
-      final shown = SystemDesktopExperience().showEventReminder(
+      final desktop = SystemDesktopExperience()
+        ..interfaceScale = 1.5
+        ..glassTransparency = 0.65;
+      final shown = desktop.showEventReminder(
         event(),
         event().startsAt,
         event().startsAt,
@@ -45,6 +48,8 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
       expect(calls.single.method, 'show');
+      expect((calls.single.arguments as Map)['interfaceScale'], 1.5);
+      expect((calls.single.arguments as Map)['glassTransparency'], 0.65);
       final resolving = action(0);
       await Future<void>.delayed(Duration.zero);
       expect(calls.map((call) => call.method), ['show']);

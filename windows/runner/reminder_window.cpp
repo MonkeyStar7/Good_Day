@@ -1,5 +1,6 @@
 #include "reminder_window.h"
 #include <algorithm>
+#include <cmath>
 #include <dwmapi.h>
 #include <flutter/standard_method_codec.h>
 #include <gdiplus.h>
@@ -9,6 +10,8 @@ constexpr wchar_t kClassName[] = L"GoodDay.Reminder";
 constexpr wchar_t kButtonProcedure[] = L"GoodDay.Reminder.ButtonProc";
 constexpr wchar_t kHovered[] = L"GoodDay.Reminder.Hovered";
 Gdiplus::Color Mix(int rgb, float amount, BYTE neutral = 255) {
+  if (rgb == 0x54606D && neutral == 255 && amount == 0.09f)
+    return Gdiplus::Color(255, 255, 255, 255);
   // Match the cloud-yellow Flutter palette while keeping readable controls.
   if (rgb == 0x8D742B) {
     if (neutral == 255 && amount == 0.09f)
@@ -28,6 +31,76 @@ Gdiplus::Color Mix(int rgb, float amount, BYTE neutral = 255) {
   return Gdiplus::Color(255, blend((rgb >> 16) & 255), blend((rgb >> 8) & 255),
                         blend(rgb & 255));
 }
+bool FrostWindow(HWND window) {
+  const MARGINS margins{-1, -1, -1, -1};
+  DwmExtendFrameIntoClientArea(window, &margins);
+  const DWORD backdrop = 3; // DWMSBT_TRANSIENTWINDOW on supported Windows 11.
+  const BOOL dark = FALSE;
+  DwmSetWindowAttribute(window, 20, &dark, sizeof(dark));
+  if (SUCCEEDED(DwmSetWindowAttribute(window, 38, &backdrop, sizeof(backdrop))))
+    return true;
+  // Same compatibility path used by flutter_acrylic on Windows 10.
+  struct AccentPolicy {
+    int state;
+    int flags;
+    DWORD color;
+    int animation;
+  };
+  struct CompositionData {
+    int attribute;
+    void *data;
+    SIZE_T size;
+  };
+  using SetComposition = BOOL(WINAPI *)(HWND, CompositionData *);
+  const auto set = reinterpret_cast<SetComposition>(GetProcAddress(
+      GetModuleHandleW(L"user32.dll"), "SetWindowCompositionAttribute"));
+  if (!set)
+    return false;
+  AccentPolicy policy{4, 2, 0x08FFFFFF, 0};
+  CompositionData data{19, &policy, sizeof(policy)};
+  return set(window, &data) != FALSE;
+}
+class GlassBitmap {
+public:
+  GlassBitmap(HDC target, int width, int height)
+      : target_(target), width_(width), height_(height) {
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = width;
+    info.bmiHeader.biHeight = -height;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    void *pixels = nullptr;
+    dib_ = CreateDIBSection(target, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+    dc_ = CreateCompatibleDC(target);
+    if (dib_ && dc_ && pixels) {
+      old_ = SelectObject(dc_, dib_);
+      bitmap = std::make_unique<Gdiplus::Bitmap>(width, height, width * 4,
+                                                 PixelFormat32bppPARGB,
+                                                 static_cast<BYTE *>(pixels));
+    }
+  }
+  ~GlassBitmap() {
+    if (bitmap) {
+      bitmap.reset();
+      BitBlt(target_, 0, 0, width_, height_, dc_, 0, 0, SRCCOPY);
+    }
+    if (old_)
+      SelectObject(dc_, old_);
+    if (dc_)
+      DeleteDC(dc_);
+    if (dib_)
+      DeleteObject(dib_);
+  }
+  std::unique_ptr<Gdiplus::Bitmap> bitmap;
+
+private:
+  HDC target_ = nullptr, dc_ = nullptr;
+  HBITMAP dib_ = nullptr;
+  HGDIOBJ old_ = nullptr;
+  int width_, height_;
+};
 class DrawingSession {
 public:
   DrawingSession() {
@@ -154,7 +227,7 @@ ReminderWindow::~ReminderWindow() {
   Close();
 }
 int ReminderWindow::Scale(int value) const {
-  return MulDiv(value, static_cast<int>(dpi_), 96);
+  return static_cast<int>(std::lround(value * dpi_ * interface_scale_ / 96.0));
 }
 
 bool ReminderWindow::Show(const flutter::EncodableMap &data) {
@@ -172,6 +245,21 @@ bool ReminderWindow::Show(const flutter::EncodableMap &data) {
     if (value && *value >= 0 && *value <= 0xFFFFFF)
       accent_rgb_ = *value;
   }
+  interface_scale_ = 1;
+  const auto scale = data.find(flutter::EncodableValue("interfaceScale"));
+  if (scale != data.end()) {
+    const auto value = std::get_if<double>(&scale->second);
+    if (value && (*value == 0.75 || *value == 1 || *value == 1.5))
+      interface_scale_ = *value;
+  }
+  double transparency = 0.22;
+  const auto glass = data.find(flutter::EncodableValue("glassTransparency"));
+  if (glass != data.end()) {
+    const auto value = std::get_if<double>(&glass->second);
+    if (value && std::isfinite(*value))
+      transparency = std::clamp(*value, 0.0, 0.75);
+  }
+  glass_alpha_ = static_cast<BYTE>(std::lround((1 - transparency) * 255));
   title_ = Text(data, "title");
   time_ = Text(data, "time");
   date_ = Text(data, "date");
@@ -207,7 +295,9 @@ bool ReminderWindow::Show(const flutter::EncodableMap &data) {
   // Keep content proportions when the monitor cannot fit the requested DPI
   // size.
   dpi_ = std::min(
-      dpi_, static_cast<UINT>(std::min(width * 96 / 600, height * 96 / 460)));
+      dpi_, static_cast<UINT>(std::min(
+                static_cast<int>(width * 96 / (600 * interface_scale_)),
+                static_cast<int>(height * 96 / (460 * interface_scale_)))));
   const int x = info.rcMonitor.left +
                 (info.rcMonitor.right - info.rcMonitor.left - width) / 2;
   const int y = info.rcMonitor.top +
@@ -229,8 +319,8 @@ bool ReminderWindow::Show(const flutter::EncodableMap &data) {
     if (!SetWindowRgn(window_, region, FALSE))
       DeleteObject(region);
   }
-  const MARGINS shadow{1, 1, 1, 1};
-  DwmExtendFrameIntoClientArea(window_, &shadow);
+  if (!FrostWindow(window_))
+    glass_alpha_ = 255;
   SetWindowPos(window_, nullptr, 0, 0, 0, 0,
                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
                    SWP_FRAMECHANGED);
@@ -299,10 +389,15 @@ void ReminderWindow::PaintButton(const DRAWITEMSTRUCT &item) {
   const auto kPaper = Mix(accent_rgb_, 0.09f);
   const auto kMuted = Mix(accent_rgb_, 0.58f, 120);
   const auto kAccent = Mix(accent_rgb_, 1.0f);
-  Gdiplus::Graphics graphics(item.hDC);
+  GlassBitmap surface(item.hDC, item.rcItem.right - item.rcItem.left,
+                      item.rcItem.bottom - item.rcItem.top);
+  if (!surface.bitmap)
+    return;
+  Gdiplus::Graphics graphics(surface.bitmap.get());
   graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
   graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
-  graphics.Clear(kPaper);
+  graphics.Clear(Gdiplus::Color(glass_alpha_, kPaper.GetR(), kPaper.GetG(),
+                                kPaper.GetB()));
   const bool disabled = (item.itemState & ODS_DISABLED) != 0;
   const bool pressed = (item.itemState & ODS_SELECTED) != 0;
   const bool hover = GetPropW(item.hwndItem, kHovered) != nullptr;
@@ -361,48 +456,78 @@ void ReminderWindow::Paint() {
   GetClientRect(window_, &bounds);
   {
     // Draw to an offscreen surface so hover and save updates do not flash.
-    Gdiplus::Bitmap surface(bounds.right, bounds.bottom, PixelFormat32bppPARGB);
-    Gdiplus::Graphics graphics(&surface);
-    graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-    graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAliasGridFit);
-    graphics.Clear(kPaper);
-    const auto px = [this](int value) {
-      return static_cast<float>(Scale(value));
-    };
-    const float right = static_cast<float>(bounds.right),
-                bottom = static_cast<float>(bounds.bottom);
-    Round(graphics, {px(32), px(28), px(42), px(42)}, px(13),
-          Mix(accent_rgb_, 0.20f));
-    Gdiplus::Pen clock_pen(kAccent, px(2));
-    clock_pen.SetStartCap(Gdiplus::LineCapRound);
-    clock_pen.SetEndCap(Gdiplus::LineCapRound);
-    graphics.DrawEllipse(&clock_pen, px(44), px(40), px(18), px(18));
-    graphics.DrawLine(&clock_pen, px(53), px(44), px(53), px(49));
-    graphics.DrawLine(&clock_pen, px(53), px(49), px(57), px(51));
-    Write(graphics, L"GOOD DAY", {px(86), px(29), right - px(160), px(18)},
-          px(12), kAccent, true, false, L"Segoe UI");
-    Write(graphics, L"待办提醒", {px(86), px(49), right - px(160), px(22)},
-          px(13), kMuted);
-    Write(graphics, title_, {px(32), px(100), right - px(64), px(80)}, px(27),
-          kInk, true);
-    Round(graphics, {px(32), px(194), right - px(64), px(74)}, px(14),
-          Mix(accent_rgb_, 0.16f));
-    Write(graphics, clock_, {px(48), px(208), px(116), px(44)}, px(30), kAccent,
-          true, false, L"Segoe UI");
-    Write(graphics, date_, {px(178), px(220), right - px(226), px(22)}, px(13),
-          kInk);
-    Write(graphics, notes_,
+    // Transfer premultiplied alpha unchanged to the DWM glass surface.
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = bounds.right;
+    info.bmiHeader.biHeight = -bounds.bottom;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    void *pixels = nullptr;
+    HBITMAP bitmap =
+        CreateDIBSection(dc, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+    HDC buffer = CreateCompatibleDC(dc);
+    if (!bitmap || !buffer || !pixels) {
+      if (bitmap)
+        DeleteObject(bitmap);
+      if (buffer)
+        DeleteDC(buffer);
+      EndPaint(window_, &paint);
+      return;
+    }
+    const auto previous = SelectObject(buffer, bitmap);
+    {
+      Gdiplus::Bitmap surface(bounds.right, bounds.bottom, bounds.right * 4,
+                              PixelFormat32bppPARGB,
+                              static_cast<BYTE *>(pixels));
+      Gdiplus::Graphics graphics(&surface);
+      graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+      graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAliasGridFit);
+      graphics.Clear(Gdiplus::Color(glass_alpha_, kPaper.GetR(), kPaper.GetG(),
+                                    kPaper.GetB()));
+      const auto px = [this](int value) {
+        return static_cast<float>(Scale(value));
+      };
+      const float right = static_cast<float>(bounds.right),
+                  bottom = static_cast<float>(bounds.bottom);
+      Round(graphics, {px(32), px(28), px(42), px(42)}, px(13),
+            Mix(accent_rgb_, 0.20f));
+      Gdiplus::Pen clock_pen(kAccent, px(2));
+      clock_pen.SetStartCap(Gdiplus::LineCapRound);
+      clock_pen.SetEndCap(Gdiplus::LineCapRound);
+      graphics.DrawEllipse(&clock_pen, px(44), px(40), px(18), px(18));
+      graphics.DrawLine(&clock_pen, px(53), px(44), px(53), px(49));
+      graphics.DrawLine(&clock_pen, px(53), px(49), px(57), px(51));
+      Write(graphics, L"GOOD DAY", {px(86), px(29), right - px(160), px(18)},
+            px(12), kAccent, true, false, L"Segoe UI");
+      Write(graphics, L"待办提醒", {px(86), px(49), right - px(160), px(22)},
+            px(13), kMuted);
+      Write(graphics, title_, {px(32), px(100), right - px(64), px(80)}, px(27),
+            kInk, true);
+      Round(graphics, {px(32), px(194), right - px(64), px(74)}, px(14),
+            Mix(accent_rgb_, 0.16f));
+      Write(graphics, clock_, {px(48), px(208), px(116), px(44)}, px(30),
+            kAccent, true, false, L"Segoe UI");
+      Write(graphics, date_, {px(178), px(220), right - px(226), px(22)},
+            px(13), kInk);
+      Write(
+          graphics, notes_,
           {px(32), px(286), right - px(64), std::max(px(20), bottom - px(408))},
           px(15), kMuted);
-    if (!error_.empty())
-      Write(graphics, error_,
-            {px(32), bottom - px(128), right - px(64), px(36)}, px(12),
-            saving_ ? kMuted : Gdiplus::Color(255, 156, 65, 49));
-    Gdiplus::Pen line(Mix(accent_rgb_, 0.29f), 1);
-    graphics.DrawLine(&line, px(32), bottom - px(86), right - px(32),
-                      bottom - px(86));
-    Gdiplus::Graphics target(dc);
-    target.DrawImage(&surface, 0, 0);
+      if (!error_.empty())
+        Write(graphics, error_,
+              {px(32), bottom - px(128), right - px(64), px(36)}, px(12),
+              saving_ ? kMuted : Gdiplus::Color(255, 156, 65, 49));
+      Gdiplus::Pen line(Mix(accent_rgb_, 0.29f), 1);
+      graphics.DrawLine(&line, px(32), bottom - px(86), right - px(32),
+                        bottom - px(86));
+      graphics.Flush(Gdiplus::FlushIntentionSync);
+    }
+    BitBlt(dc, 0, 0, bounds.right, bounds.bottom, buffer, 0, 0, SRCCOPY);
+    SelectObject(buffer, previous);
+    DeleteDC(buffer);
+    DeleteObject(bitmap);
   }
   EndPaint(window_, &paint);
 }

@@ -6,6 +6,8 @@
 
 当前版本 **1.4.5**，适用于 Windows 10／11 64 位，无需安装开发环境。
 
+本机试用版本 **1.4.6** 暂未发布：支持 75%／100%／150% 界面大小、白色主题和可调毛玻璃背景透明度。
+
 - [下载安装包](https://github.com/MonkeyStar7/Good_Day/releases/download/v1.4.5/Good-Day-1.4.5-windows-x64-setup.exe)
 - [下载免安装版](https://github.com/MonkeyStar7/Good_Day/releases/download/v1.4.5/Good-Day-1.4.5-windows-x64.zip)
 - [版本与校验文件](https://github.com/MonkeyStar7/Good_Day/releases/latest)
