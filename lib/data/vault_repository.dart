@@ -83,18 +83,27 @@ class VaultRepository {
   });
   Future<VaultBackup> createBackup() => _operations.run(backups.createManual);
 
-  Future<GoodDayTask> _currentTask(GoodDayTask task) async =>
-      GoodDayTask.fromMarkdown(
-        await _taskFile(tasksDirectory, task.id).readAsString(),
-      );
-  Future<GoodDayPlan> _currentPlan(GoodDayPlan plan) async =>
-      GoodDayPlan.fromMarkdown(
-        await _taskFile(plansDirectory, plan.id).readAsString(),
-      );
-  Future<GoodDayGoal> _currentGoal(GoodDayGoal goal) async =>
-      GoodDayGoal.fromMarkdown(
-        await _taskFile(goalsDirectory, goal.id).readAsString(),
-      );
+  Future<GoodDayTask> _readTaskFile(File file) async {
+    final task = GoodDayTask.fromMarkdown(await file.readAsString());
+    _validateRecordFile(file, task.id);
+    return task;
+  }
+
+  Future<GoodDayTask> _currentTask(GoodDayTask task) =>
+      _readTaskFile(_taskFile(tasksDirectory, task.id));
+  Future<GoodDayPlan> _currentPlan(GoodDayPlan plan) async {
+    final file = _taskFile(plansDirectory, plan.id);
+    final current = GoodDayPlan.fromMarkdown(await file.readAsString());
+    _validateRecordFile(file, current.id);
+    return current;
+  }
+
+  Future<GoodDayGoal> _currentGoal(GoodDayGoal goal) async {
+    final file = _taskFile(goalsDirectory, goal.id);
+    final current = GoodDayGoal.fromMarkdown(await file.readAsString());
+    _validateRecordFile(file, current.id);
+    return current;
+  }
 
   Directory get tasksDirectory => _childDirectory(vaultDirectory, 'Tasks');
   Directory get dailyDirectory => _childDirectory(vaultDirectory, 'Daily');
@@ -127,6 +136,7 @@ class VaultRepository {
     await eventsDirectory.create(recursive: true);
     await taskSeriesDirectory.create(recursive: true);
     await archivedEventsDirectory.create(recursive: true);
+    await backups.recoverPendingRestore();
   }
 
   Future<bool> hasVaultData() async {
@@ -254,7 +264,7 @@ class VaultRepository {
       _writeOperation(() async {
         final file = _taskFile(tasksDirectory, taskId);
         if (!await file.exists()) return null;
-        final task = GoodDayTask.fromMarkdown(await file.readAsString());
+        final task = await _readTaskFile(file);
         final reminder = task.activeReminder;
         final occurrence = reminder?.dueOccurrence(now);
         if (reminder == null || occurrence == null) return null;
@@ -268,9 +278,7 @@ class VaultRepository {
     DateTime occurrence, {
     DateTime? snoozeUntil,
   }) => _writeOperation(() async {
-    final task = GoodDayTask.fromMarkdown(
-      await _taskFile(tasksDirectory, taskId).readAsString(),
-    );
+    final task = await _readTaskFile(_taskFile(tasksDirectory, taskId));
     final reminder = task.activeReminder;
     if (reminder == null ||
         !reminder.enabled ||
@@ -942,7 +950,9 @@ class VaultRepository {
         continue;
       }
       try {
-        goals.add(GoodDayGoal.fromMarkdown(await entity.readAsString()));
+        final goal = GoodDayGoal.fromMarkdown(await entity.readAsString());
+        _validateRecordFile(entity, goal.id);
+        goals.add(goal);
         _unreadableFiles.remove(entity.path);
       } on FormatException {
         _unreadableFiles.add(entity.path);
@@ -1009,7 +1019,9 @@ class VaultRepository {
         continue;
       }
       try {
-        plans.add(GoodDayPlan.fromMarkdown(await entity.readAsString()));
+        final plan = GoodDayPlan.fromMarkdown(await entity.readAsString());
+        _validateRecordFile(entity, plan.id);
+        plans.add(plan);
         _unreadableFiles.remove(entity.path);
       } on FormatException {
         _unreadableFiles.add(entity.path);
@@ -1176,7 +1188,7 @@ class VaultRepository {
         continue;
       }
       try {
-        final task = GoodDayTask.fromMarkdown(await entity.readAsString());
+        final task = await _readTaskFile(entity);
         final stat = await entity.stat();
         items.add(
           TrashItem(
@@ -1221,8 +1233,7 @@ class VaultRepository {
     switch (item.type) {
       case TrashItemType.task:
         final source = _taskFile(archiveDirectory, item.id);
-        final restored = GoodDayTask.fromMarkdown(await source.readAsString())
-            .restore();
+        final restored = (await _readTaskFile(source)).restore();
         await _writeTask(restored);
         await source.delete();
         await _syncDaily(await _readTasks(tasksDirectory), _clock());
@@ -1295,6 +1306,7 @@ class VaultRepository {
       }
       try {
         final plan = GoodDayPlan.fromMarkdown(await entity.readAsString());
+        _validateRecordFile(entity, plan.id);
         items.add(
           TrashItem(
             type: TrashItemType.plan,
@@ -1318,6 +1330,7 @@ class VaultRepository {
       }
       try {
         final goal = GoodDayGoal.fromMarkdown(await entity.readAsString());
+        _validateRecordFile(entity, goal.id);
         items.add(
           TrashItem(
             type: TrashItemType.goal,
@@ -1342,7 +1355,7 @@ class VaultRepository {
         continue;
       }
       try {
-        tasks.add(GoodDayTask.fromMarkdown(await entity.readAsString()));
+        tasks.add(await _readTaskFile(entity));
         _unreadableFiles.remove(entity.path);
       } on FormatException {
         _unreadableFiles.add(entity.path);
@@ -1506,8 +1519,19 @@ class VaultRepository {
   static File _childFile(Directory parent, String name) =>
       File('${parent.path}${Platform.pathSeparator}$name');
 
-  static File _taskFile(Directory parent, String id) =>
-      _childFile(parent, '$id.md');
+  static File _taskFile(Directory parent, String id) {
+    if (!RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(id)) {
+      throw const FormatException('记录标识无效');
+    }
+    return _childFile(parent, '$id.md');
+  }
+
+  static void _validateRecordFile(File file, String id) {
+    if (file.absolute.path.toLowerCase() !=
+        _taskFile(file.parent, id).absolute.path.toLowerCase()) {
+      throw const FormatException('记录编号与文件名不一致，原文件已保留');
+    }
+  }
 
   static Future<void> _copyDirectory(
     Directory source,

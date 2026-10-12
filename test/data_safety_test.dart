@@ -226,4 +226,91 @@ void main() {
       await other.releaseSession();
     },
   );
+
+  test('copied records with duplicate IDs are reported without overwriting originals', () async {
+    final task = await repository.addTask('唯一任务');
+    final file = File('${vault.path}/Tasks/${task.id}.md');
+    final copy = await file.copy('${vault.path}/Tasks/copied.md');
+    expect(await repository.loadTasks(), hasLength(1));
+    expect(
+      repository.unreadableFiles.map((path) => path.replaceAll('\\', '/')),
+      contains(copy.path.replaceAll('\\', '/')),
+    );
+    await repository.updateTaskDetails(task, title: '安全修改', notes: '');
+    expect(await copy.readAsString(), contains('唯一任务'));
+    final goal = await repository.addGoal(
+      name: '目标',
+      description: '',
+      colorValue: 0xFF789A7A,
+    );
+    final plan = await repository.addPlan(
+      title: '计划',
+      deadline: now.add(const Duration(days: 2)),
+    );
+    await File('${vault.path}/Goals/${goal.id}.md')
+        .copy('${vault.path}/Goals/copied.md');
+    await File('${vault.path}/Plans/${plan.id}.md')
+        .copy('${vault.path}/Plans/copied.md');
+    expect(await repository.loadGoals(), hasLength(1));
+    expect(await repository.loadPlans(), hasLength(1));
+  });
+
+  test('restore write failure rolls all changed files back', () async {
+    if (!Platform.isWindows) return;
+    final tasks = [await repository.addTask('一'), await repository.addTask('二')]
+      ..sort((a, b) => a.id.compareTo(b.id));
+    final snapshot = await repository.createBackup();
+    for (final task in tasks) {
+      await repository.updateTaskDetails(
+        task,
+        title: '${task.title}新版本',
+        notes: '保留',
+      );
+    }
+    final before = <String, String>{};
+    for (final task in tasks) {
+      final path = '${vault.path}/Tasks/${task.id}.md';
+      before[path] = await File(path).readAsString();
+    }
+    final protected = File('${vault.path}/Tasks/${tasks.last.id}.md');
+    await Process.run('attrib', ['+R', protected.path]);
+    try {
+      await expectLater(
+        repository.restoreBackup(snapshot.id),
+        throwsA(isA<FileSystemException>()),
+      );
+      for (final entry in before.entries) {
+        expect(await File(entry.key).readAsString(), entry.value);
+      }
+      expect(
+        await File('${vault.path}/.goodday/restore-pending.json').exists(),
+        isFalse,
+      );
+    } finally {
+      await Process.run('attrib', ['-R', protected.path]);
+    }
+  });
+
+  test('startup recovers a restore interrupted between files', () async {
+    var task = await repository.addTask('恢复前');
+    final snapshot = await repository.createBackup();
+    task = await repository.updateTaskDetails(
+      task,
+      title: '部分恢复的状态',
+      notes: '',
+    );
+    final extra = await repository.addTask('恢复中产生的额外文件');
+    await SafeFile.write(
+      File('${vault.path}/.goodday/restore-pending.json'),
+      jsonEncode({'backupId': snapshot.id}),
+    );
+    final reopened = VaultRepository(vault, clock: () => now);
+    await reopened.initialize();
+    expect((await reopened.loadTasks()).single.title, '恢复前');
+    expect(await File('${vault.path}/Tasks/${extra.id}.md').exists(), isFalse);
+    expect(
+      await File('${vault.path}/.goodday/restore-pending.json').exists(),
+      isFalse,
+    );
+  });
 }

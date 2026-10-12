@@ -92,6 +92,7 @@ class VaultBackups {
   }
 
   Future<void> ensureDaily() => _queue.run(() async {
+    await _recoverPendingRestore();
     final now = _clock();
     final existing = await list();
     if (existing.any(
@@ -102,7 +103,24 @@ class VaultBackups {
     await _create('daily');
   });
 
-  Future<VaultBackup> createManual() => _queue.run(() => _create('manual'));
+  Future<VaultBackup> createManual() => _queue.run(() async {
+    await _recoverPendingRestore();
+    return _create('manual');
+  });
+
+  File get _restoreJournal => _file(vault, '.goodday/restore-pending.json');
+
+  Future<void> recoverPendingRestore() => _queue.run(_recoverPendingRestore);
+
+  Future<void> _recoverPendingRestore() async {
+    if (!await _restoreJournal.exists()) return;
+    final journal = jsonDecode(
+      await _restoreJournal.readAsString(),
+    ) as Map<String, dynamic>;
+    final contents = await _readSnapshot(journal['backupId'] as String);
+    await _applyContents(contents);
+    await _restoreJournal.delete();
+  }
 
   Future<List<String>> _managedFiles() async {
     final files = <String>[];
@@ -171,6 +189,24 @@ class VaultBackups {
   }
 
   Future<void> restore(String id) => _queue.run(() async {
+    await _recoverPendingRestore();
+    // Validate the entire selected snapshot before touching current data.
+    final contents = await _readSnapshot(id);
+    final safety = await _create('before-restore');
+    // A durable journal makes an interrupted multi-file restore recoverable.
+    await SafeFile.write(_restoreJournal, jsonEncode({'backupId': safety.id}));
+    try {
+      await _applyContents(contents);
+      await _restoreJournal.delete();
+    } catch (_) {
+      // Restore the pre-operation snapshot. If disk access still fails, leave
+      // the journal and snapshot intact and block writes until recovery works.
+      await _recoverPendingRestore();
+      rethrow;
+    }
+  });
+
+  Future<Map<String, List<int>>> _readSnapshot(String id) async {
     final matches = (await list()).where((backup) => backup.id == id);
     if (matches.isEmpty) throw const FileSystemException('备份不存在或不完整');
     final selected = matches.first;
@@ -192,16 +228,26 @@ class VaultBackups {
         throw FileSystemException('备份校验失败，未修改当前数据', snapshotFile.path);
       }
     }
-    await _create('before-restore');
+    return contents;
+  }
+
+  Future<void> _applyContents(Map<String, List<int>> contents) async {
     for (final entry in contents.entries) {
-      await SafeFile.writeBytes(_file(vault, entry.key), entry.value);
+      final target = _file(vault, entry.key);
+      // An unchanged readonly file should not prevent a safe rollback.
+      if (await target.exists() &&
+          sha256.convert(await target.readAsBytes()) ==
+              sha256.convert(entry.value)) {
+        continue;
+      }
+      await SafeFile.writeBytes(target, entry.value);
     }
     for (final relative in await _managedFiles()) {
       if (!contents.containsKey(relative)) {
         await _file(vault, relative).delete();
       }
     }
-  });
+  }
 
   static bool _isManaged(String path) {
     if (path.contains('\\') ||

@@ -127,10 +127,10 @@ Future<void> _startApplication(List<String> arguments) async {
               )
             : await VaultRepository.createDefault())
       : VaultRepository(savedVault);
-  await repository.initialize();
   late AppSettingsController settingsController;
   try {
     await repository.acquireSession();
+    await repository.initialize();
     await vaultLocationStore.save(repository.vaultDirectory);
     settingsController = await AppSettingsController.load(
       repository.vaultDirectory,
