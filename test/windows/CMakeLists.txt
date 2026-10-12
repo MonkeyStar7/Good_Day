@@ -4,12 +4,13 @@ get_filename_component(ROOT "../.." ABSOLUTE)
 set(WRAPPER "${ROOT}/windows/flutter/ephemeral/cpp_client_wrapper")
 add_executable(reminder_window_test reminder_window_test.cpp
   "${ROOT}/windows/runner/reminder_window.cpp"
-  "${ROOT}/windows/runner/window_surface.cpp")
+  "${ROOT}/windows/runner/window_surface.cpp"
+  "${ROOT}/windows/runner/region_glass.cpp")
 target_compile_features(reminder_window_test PRIVATE cxx_std_17)
 target_compile_options(reminder_window_test PRIVATE /W4 /WX /utf-8)
 target_compile_definitions(reminder_window_test PRIVATE UNICODE _UNICODE NOMINMAX)
 target_include_directories(reminder_window_test PRIVATE "${WRAPPER}/include" "${ROOT}/windows/runner")
-target_link_libraries(reminder_window_test PRIVATE user32 gdi32 gdiplus dwmapi
+target_link_libraries(reminder_window_test PRIVATE user32 gdi32 gdiplus dwmapi windowsapp CoreMessaging
   "${ROOT}/build/windows/x64/flutter/Release/flutter_wrapper_app.lib"
   "${ROOT}/windows/flutter/ephemeral/flutter_windows.dll.lib")
 add_custom_command(TARGET reminder_window_test POST_BUILD

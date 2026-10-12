@@ -53,7 +53,7 @@ enum AppAccent {
 
   static AppAccent fromKey(String? key) => values.firstWhere(
     (accent) => accent.key == key,
-    orElse: () => AppAccent.forest,
+    orElse: () => AppAccent.white,
   );
 }
 
@@ -75,9 +75,9 @@ enum InterfaceSize {
 class AppSettings {
   const AppSettings({
     this.font = AppFont.appleStyle,
-    this.accent = AppAccent.forest,
+    this.accent = AppAccent.white,
     this.interfaceSize = InterfaceSize.medium,
-    this.glassTransparency = 0.22,
+    this.glassTransparency = 0.8,
   });
 
   final AppFont font;
@@ -116,8 +116,8 @@ class AppSettings {
       glassTransparency:
           json['glassTransparency'] is num &&
               (json['glassTransparency'] as num).isFinite
-          ? (json['glassTransparency'] as num).toDouble().clamp(0, 0.75)
-          : 0.22,
+          ? (json['glassTransparency'] as num).toDouble().clamp(0, 0.95)
+          : 0.8,
     );
   }
 }
@@ -209,7 +209,7 @@ class AppSettingsController extends ChangeNotifier {
 
   Future<void> setGlassTransparency(double value) => _operations.run(() async {
     if (!value.isFinite) return;
-    final next = settings.copyWith(glassTransparency: value.clamp(0, 0.75));
+    final next = settings.copyWith(glassTransparency: value.clamp(0, 0.95));
     if (settings.glassTransparency == next.glassTransparency) return;
     await store?.save(next);
     settings = next;

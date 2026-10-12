@@ -191,8 +191,8 @@ Future<void> _startApplication(List<String> arguments) async {
     await windowManager.setAsFrameless();
     await windowManager.setHasShadow(false);
     await acrylic.Window.setEffect(
-      effect: acrylic.WindowEffect.acrylic,
-      color: Colors.white.withValues(alpha: 0.08),
+      effect: acrylic.WindowEffect.transparent,
+      color: Colors.transparent,
       dark: false,
     );
     Future<void> applyAppearance([InterfaceSize? requestedSize]) async {
@@ -301,14 +301,14 @@ class GoodDayApp extends StatelessWidget {
               headerBackgroundColor: colors.panel,
               headerForegroundColor: colors.ink,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(20),
               ),
             ),
             popupMenuTheme: PopupMenuThemeData(
               color: colors.paper,
               surfaceTintColor: Colors.transparent,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(20),
               ),
             ),
             fontFamily: settings.font.family,
@@ -364,7 +364,7 @@ class GoodDayApp extends StatelessWidget {
               backgroundColor: colors.paper,
               surfaceTintColor: Colors.transparent,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(20),
               ),
               titleTextStyle: TextStyle(
                 fontFamily: settings.font.family,
@@ -1009,7 +1009,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('确认删除？'),
         content: Text('$label 将移到垃圾桶。'),
         actions: [
@@ -1326,10 +1326,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   decoration: BoxDecoration(
                     color: Colors.transparent,
                     borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(12),
-                      bottomLeft: Radius.circular(12),
-                      topRight: Radius.circular(12),
-                      bottomRight: Radius.circular(12),
+                      topLeft: Radius.circular(20),
+                      bottomLeft: Radius.circular(20),
+                      topRight: Radius.circular(20),
+                      bottomRight: Radius.circular(20),
                     ),
                     border: Border.all(color: context.appColors.line),
                   ),
@@ -1943,7 +1943,7 @@ class _WindowButton extends StatelessWidget {
         style: IconButton.styleFrom(
           backgroundColor: Colors.transparent,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(20),
           ),
         ),
         icon: Icon(icon),
@@ -2381,7 +2381,7 @@ class _GoalPickerRow extends StatelessWidget {
         tooltip: '选择目标',
         onSelected: (value) => onChanged(value.isEmpty ? null : value),
         color: context.appColors.paper,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         itemBuilder: (context) => [
           const PopupMenuItem<String>(
             value: '',
@@ -4712,7 +4712,7 @@ class _SettingsPageState extends State<SettingsPage> {
           child: Container(
             decoration: BoxDecoration(
               color: Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(20),
               border: Border.all(color: context.appColors.line),
             ),
             child: Column(
@@ -4846,8 +4846,8 @@ class _SettingsPageState extends State<SettingsPage> {
                         key: const Key('glass-transparency-slider'),
                         value: _glassDraft ?? settings.glassTransparency,
                         min: 0,
-                        max: 0.75,
-                        divisions: 15,
+                        max: 0.95,
+                        divisions: 19,
                         label:
                             '${((_glassDraft ?? settings.glassTransparency) * 100).round()}%',
                         onChanged: (value) =>
@@ -5192,7 +5192,7 @@ class _TrashPageState extends State<TrashPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('清空垃圾桶？'),
         content: const Text('这里的内容将被永久删除，无法恢复。'),
         actions: [

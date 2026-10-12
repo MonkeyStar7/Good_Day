@@ -4,7 +4,7 @@
 #include <flutter/standard_method_codec.h>
 
 WindowSurface::WindowSurface(flutter::BinaryMessenger *messenger, HWND window)
-    : window_(window) {
+    : window_(window), glass_(std::make_unique<RegionGlass>(window)) {
   channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
       messenger, "good_day/window_surface",
       &flutter::StandardMethodCodec::GetInstance());
@@ -66,17 +66,27 @@ WindowSurface::WindowSurface(flutter::BinaryMessenger *messenger, HWND window)
 }
 
 WindowSurface::~WindowSurface() { channel_->SetMethodCallHandler(nullptr); }
+void WindowSurface::HideGlass() { glass_->Hide(); }
 
 void WindowSurface::ResizeRegion() {
-  RECT rect{};
-  if (!GetClientRect(window_, &rect) || rect.right <= 0 || rect.bottom <= 0)
+  if (resizing_)
     return;
+  struct ResizeGuard {
+    bool &value;
+    explicit ResizeGuard(bool &flag) : value(flag) { value = true; }
+    ~ResizeGuard() { value = false; }
+  } guard(resizing_);
+  RECT rect{};
+  if (!GetClientRect(window_, &rect) || rect.right <= 0 || rect.bottom <= 0) {
+    glass_->Hide();
+    return;
+  }
   const double factor = scale_ * std::max(96U, GetDpiForWindow(window_)) / 96.0;
   const auto px = [factor](int value) {
     return static_cast<int>(std::lround(value * factor));
   };
   HRGN region = CreateRoundRectRgn(notes_ ? px(56) : 0, 0, rect.right + 1,
-                                   rect.bottom + 1, px(24), px(24));
+                                   rect.bottom + 1, px(40), px(40));
   if (!region)
     return;
   if (notes_)
@@ -93,4 +103,5 @@ void WindowSurface::ResizeRegion() {
   // window instead of filling them with a rectangular translucent frame.
   if (!SetWindowRgn(window_, region, TRUE))
     DeleteObject(region);
+  glass_->Update(scale_, notes_, selected_, count_);
 }

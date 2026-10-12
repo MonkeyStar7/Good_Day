@@ -61,7 +61,11 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
-  if (window_surface_ && (message == WM_SIZE || message == WM_DPICHANGED))
+  if (window_surface_ && message == WM_SHOWWINDOW && !wparam)
+    window_surface_->HideGlass();
+  if (window_surface_ &&
+      (message == WM_SIZE || message == WM_DPICHANGED ||
+       message == WM_WINDOWPOSCHANGED || message == WM_ACTIVATE))
     window_surface_->ResizeRegion();
   if (lifecycle_channel_) {
     if (message == WM_POWERBROADCAST &&

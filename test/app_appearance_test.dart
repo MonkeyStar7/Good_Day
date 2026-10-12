@@ -184,11 +184,12 @@ void main() {
             final slider = tester.widget<Slider>(
               find.byKey(const Key('glass-transparency-slider')),
             );
-            slider.onChanged!(0.7);
-            slider.onChangeEnd!(0.7);
+            expect(slider.max, 0.95);
+            slider.onChanged!(0.95);
+            slider.onChangeEnd!(0.95);
             await settle();
-            expect(settings.settings.glassTransparency, 0.7);
-            expect(find.text('70%'), findsOneWidget);
+            expect(settings.settings.glassTransparency, 0.95);
+            expect(find.text('95%'), findsOneWidget);
             final paper = AppColors(AppAccent.white.color, transparency: 0.7);
             expect(paper.paper.a, closeTo(0.3, 0.01));
             expect(paper.ink.a, 1);
@@ -196,8 +197,20 @@ void main() {
           } finally {
             await tester.pumpWidget(const SizedBox());
             await repository.idle;
-            await vault.delete(recursive: true);
+            await settings.idle;
             settings.dispose();
+            // Windows may still complete a queued file notification while the
+            // widget tree is being disposed. Only retry the owned temp cleanup.
+            for (var attempt = 0; attempt < 3; attempt++) {
+              try {
+                await vault.delete(recursive: true);
+                break;
+              } on FileSystemException catch (error) {
+                if (error.osError?.errorCode != 145 || attempt == 2) rethrow;
+                await Future<void>.delayed(const Duration(milliseconds: 100));
+                await repository.idle;
+              }
+            }
           }
         });
       },

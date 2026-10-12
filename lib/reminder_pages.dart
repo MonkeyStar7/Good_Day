@@ -137,6 +137,22 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
       await _load();
     },
   );
+  Future<void> _completeSubtask(
+    ReminderItem item,
+    GoodDaySubtask task,
+    bool value,
+  ) async {
+    if (!await (_editor.currentState?.flushPendingEdits() ??
+        Future.value(true))) {
+      return;
+    }
+    try {
+      await widget.repository.setReminderSubtaskCompleted(item, task.id, value);
+    } catch (error) {
+      if (mounted) setState(() => _error = '未保存，请重试：$error');
+    }
+  }
+
   Widget _row(ReminderItem item, String section) {
     final overdue = !item.isCompleted && item.dueAt.isBefore(widget.clock());
     return Column(
@@ -148,7 +164,10 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
             key: Key('reminder-row-${item.id}'),
             onTap: () => _openEditor(section, item.dueAt, item),
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              padding: EdgeInsets.only(
+                top: 12,
+                bottom: item.subtasks.isEmpty ? 12 : 2,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -181,6 +200,14 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
                       ),
                       IconButton(
                         key: Key('expand-reminder-${item.id}'),
+                        style: item.subtasks.isEmpty
+                            ? null
+                            : IconButton.styleFrom(
+                                minimumSize: const Size(32, 32),
+                                maximumSize: const Size(32, 32),
+                                padding: EdgeInsets.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
                         tooltip: '展开事项设置',
                         constraints: const BoxConstraints.tightFor(
                           width: 32,
@@ -229,43 +256,52 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
           for (final task in item.subtasks)
             Padding(
               padding: const EdgeInsets.only(left: 30),
-              child: CheckboxListTile(
+              child: InkWell(
                 key: Key('reminder-subtask-${task.id}'),
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
-                value: task.isCompleted,
-                onChanged: item.isCompleted
+                canRequestFocus: false,
+                onTap: item.isCompleted
                     ? null
-                    : (value) async {
-                        if (!await (_editor.currentState?.flushPendingEdits() ??
-                            Future.value(true))) {
-                          return;
-                        }
-                        try {
-                          await widget.repository.setReminderSubtaskCompleted(
-                            item,
-                            task.id,
-                            value ?? false,
-                          );
-                        } catch (error) {
-                          if (mounted) {
-                            setState(() => _error = '未保存，请重试：$error');
-                          }
-                        }
-                      },
-                title: Text(
-                  task.title,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: context.appColors.muted,
-                    decoration: task.isCompleted
-                        ? TextDecoration.lineThrough
-                        : null,
+                    : () => _completeSubtask(item, task, !task.isCompleted),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 32),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 30,
+                        height: 28,
+                        child: Checkbox(
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                          value: task.isCompleted,
+                          onChanged: item.isCompleted
+                              ? null
+                              : (value) => _completeSubtask(
+                                  item,
+                                  task,
+                                  value ?? false,
+                                ),
+                        ),
+                      ),
+                      const SizedBox(width: 7),
+                      Expanded(
+                        child: Text(
+                          task.title,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: context.appColors.muted,
+                            decoration: task.isCompleted
+                                ? TextDecoration.lineThrough
+                                : null,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
+        if (_editingItem?.id != item.id && item.subtasks.isNotEmpty)
+          const SizedBox(height: 8),
         Divider(
           height: 1,
           color: context.appColors.line.withValues(alpha: 0.65),
@@ -754,12 +790,12 @@ class ReminderEditorState extends State<ReminderEditor>
         builder: (context, update) {
           _optionsSetState = update;
           return GlassSurface(
-            radius: 16,
+            radius: 20,
             child: AlertDialog(
               key: const Key('reminder-options-dialog'),
               title: const Text('提醒设置', style: TextStyle(fontSize: 18)),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(20),
               ),
               contentPadding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
               content: SizedBox(

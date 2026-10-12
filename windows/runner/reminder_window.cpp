@@ -252,12 +252,12 @@ bool ReminderWindow::Show(const flutter::EncodableMap &data) {
     if (value && (*value == 0.75 || *value == 1 || *value == 1.5))
       interface_scale_ = *value;
   }
-  double transparency = 0.22;
+  double transparency = 0.8;
   const auto glass = data.find(flutter::EncodableValue("glassTransparency"));
   if (glass != data.end()) {
     const auto value = std::get_if<double>(&glass->second);
     if (value && std::isfinite(*value))
-      transparency = std::clamp(*value, 0.0, 0.75);
+      transparency = std::clamp(*value, 0.0, 0.95);
   }
   glass_alpha_ = static_cast<BYTE>(std::lround((1 - transparency) * 255));
   title_ = Text(data, "title");

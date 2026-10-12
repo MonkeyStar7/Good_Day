@@ -140,27 +140,66 @@ class _ReminderHistoryPageState extends State<ReminderHistoryPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Wrap(
-          spacing: 8,
+        Row(
           children: [
             for (final completed in [true, false])
-              ChoiceChip(
-                label: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 7,
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    right: completed ? 4 : 0,
+                    left: completed ? 0 : 4,
                   ),
-                  child: Text(
-                    completed ? '已完成' : '未完成',
-                    style: const TextStyle(fontSize: 15),
+                  child: Semantics(
+                    button: true,
+                    selected: _completed == completed,
+                    child: Material(
+                      color: _completed == completed
+                          ? Color.lerp(
+                              context.appColors.paper.withValues(alpha: 1),
+                              context.appColors.accent,
+                              0.07,
+                            )!.withValues(alpha: 0.9)
+                          : context.appColors.paper.withValues(alpha: 0.35),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: context.appColors.line.withValues(
+                            alpha: _completed == completed ? 0.85 : 0.45,
+                          ),
+                        ),
+                      ),
+                      child: InkWell(
+                        key: Key(
+                          completed
+                              ? 'history-filter-completed'
+                              : 'history-filter-incomplete',
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        hoverColor: context.appColors.hover,
+                        onTap: () => setState(() => _completed = completed),
+                        child: SizedBox(
+                          height: 50,
+                          child: Center(
+                            child: Text(
+                              completed ? '已完成' : '未完成',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w600,
+                                color: _completed == completed
+                                    ? context.appColors.ink
+                                    : context.appColors.muted,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-                showCheckmark: false,
-                selected: _completed == completed,
-                onSelected: (_) => setState(() => _completed = completed),
               ),
           ],
         ),
+        const SizedBox(height: 10),
         TextField(
           key: const Key('history-search'),
           decoration: const InputDecoration(

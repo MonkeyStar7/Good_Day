@@ -32,7 +32,7 @@ abstract interface class DesktopExperience {
     DateTime occurrence,
     DateTime now,
     Future<void> Function(Duration? snooze) resolve, {
-    int accentRgb = 0x365D46,
+    int accentRgb = 0x54606D,
   });
 
   Future<bool> isLaunchAtStartupEnabled();
@@ -52,7 +52,7 @@ class SystemDesktopExperience extends DesktopExperience
   final ValueNotifier<bool> _windowPinned = ValueNotifier(false);
   bool _reminderOnTop = false;
   double interfaceScale = 1;
-  double glassTransparency = 0.22;
+  double glassTransparency = 0.8;
   final _topmostOperations = OperationQueue();
   Future<bool> Function()? _saveGuard;
   static const _lifecycle = MethodChannel('good_day/lifecycle');
@@ -139,7 +139,7 @@ class SystemDesktopExperience extends DesktopExperience
     DateTime occurrence,
     DateTime now,
     Future<void> Function(Duration? snooze) resolve, {
-    int accentRgb = 0x365D46,
+    int accentRgb = 0x54606D,
   }) async {
     final finished = Completer<void>();
     var saving = false;

@@ -53,7 +53,7 @@ class GlassSurface extends StatelessWidget {
   const GlassSurface({
     super.key,
     required this.child,
-    this.radius = 12,
+    this.radius = 20,
     this.material = false,
   });
   final Widget child;
@@ -74,7 +74,10 @@ class GlassSurface extends StatelessWidget {
                     Color.lerp(context.appColors.paper, Colors.white, 0.09)!,
                     context.appColors.paper,
                     context.appColors.paper.withValues(
-                      alpha: (context.appColors.paper.a - 0.045).clamp(0, 1),
+                      alpha:
+                          (context.appColors.paper.a -
+                                  0.045 * context.appColors.transparency)
+                              .clamp(0, 1),
                     ),
                   ],
                   stops: const [0, 0.45, 1],
