@@ -192,16 +192,14 @@ void main() {
         );
         await tester.enterText(subtaskInput, '第一套试卷');
         await inspect('00-inline-editor');
-        await openReminderOptions(tester);
-        expect(find.text('09:00'), findsOneWidget);
-        expect(find.byTooltip('2026年10月12日'), findsOneWidget);
-        expect(
-          tester.getRect(find.byKey(const Key('reminder-date'))).center.dy,
-          tester.getRect(find.byKey(const Key('reminder-time'))).center.dy,
+        await tester.ensureVisible(
+          find.byKey(const Key('todo-repeat-enabled')),
         );
+        await tester.tap(find.byKey(const Key('todo-repeat-enabled')));
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('reminder-repeat')));
         await tester.pumpAndSettle();
-        expect(find.text('每分钟'), findsOneWidget);
+        expect(find.text('每天'), findsNWidgets(2));
         final menu = find.byType(Scrollable).last;
         expect(tester.getSize(menu).height, lessThanOrEqualTo(240));
         await inspect('01-repeat-menu');
@@ -223,7 +221,7 @@ void main() {
         );
         await tester.tap(find.byType(DropdownButton<RepeatUnit>));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('分钟').last);
+        await tester.tap(find.text('天').last);
         await tester.pumpAndSettle();
         final number = tester.getRect(
           find.byKey(const Key('custom-repeat-interval-box')),
@@ -237,6 +235,13 @@ void main() {
         expect(unit.left - number.right, inInclusiveRange(0, 15));
         expect(find.text('一次'), findsOneWidget);
 
+        await openReminderOptions(tester);
+        expect(find.text('09:00'), findsOneWidget);
+        expect(find.byTooltip('2026年10月12日'), findsOneWidget);
+        expect(
+          tester.getRect(find.byKey(const Key('reminder-date'))).center.dy,
+          tester.getRect(find.byKey(const Key('reminder-time'))).center.dy,
+        );
         await tester.ensureVisible(find.byKey(const Key('reminder-time')));
         await tester.tap(find.byKey(const Key('reminder-time')));
         await tester.pumpAndSettle();
@@ -268,14 +273,6 @@ void main() {
         final leadUnit = tester.getRect(
           find.byKey(const Key('custom-lead-unit')),
         );
-        final repeatNumber = tester.getRect(
-          find.byKey(const Key('custom-repeat-interval-box')),
-        );
-        final repeatUnit = tester.getRect(
-          find.byKey(const Key('custom-repeat-unit')),
-        );
-        expect(leadNumber.left, repeatNumber.left);
-        expect(leadUnit.left, repeatUnit.left);
         expect(leadNumber.top, leadUnit.top);
         expect(leadNumber.height, leadUnit.height);
         double textBaseline(Finder finder) {
@@ -294,10 +291,7 @@ void main() {
         }
 
         await inspect('03-custom-early');
-        for (final pair in [
-          ('custom-repeat-interval', 'custom-repeat-unit'),
-          ('custom-lead-amount', 'custom-lead-unit'),
-        ]) {
+        for (final pair in [('custom-lead-amount', 'custom-lead-unit')]) {
           final editable = find.descendant(
             of: find.byKey(Key(pair.$1)),
             matching: find.byType(EditableText),
@@ -322,7 +316,7 @@ void main() {
         expect(records, hasLength(1));
         expect(records.single.dueAt, DateTime(2026, 10, 12, 9));
         expect(records.single.early!.amount, 20);
-        expect(records.single.rule.unit, RepeatUnit.minute);
+        expect(records.single.rule.unit, RepeatUnit.day);
         expect(records.single.rule.interval, 5);
         expect(find.text('复习数学'), findsOneWidget);
         expect(find.text('先整理错题'), findsOneWidget);
@@ -352,7 +346,7 @@ void main() {
         expect(find.text('今天 · 10月12日'), findsOneWidget);
         expect(find.text('明天 · 10月13日'), findsOneWidget);
         expect(find.text('后天 · 10月14日'), findsOneWidget);
-        expect(find.text('复习数学'), findsOneWidget);
+        expect(find.text('复习数学'), findsWidgets);
         expect(find.text('旧的阶段计划'), findsNothing);
         await tester.scrollUntilVisible(
           find.byKey(const Key('add-reminder-date-2026-10-18')),

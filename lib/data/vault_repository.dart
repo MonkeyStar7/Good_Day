@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
@@ -150,6 +151,7 @@ class VaultRepository {
     await archivedEventsDirectory.create(recursive: true);
     await remindersDirectory.create(recursive: true);
     await backups.recoverPendingRestore();
+    await _recoverReminderTransaction();
   }
 
   Future<bool> hasVaultData() async {

@@ -220,6 +220,11 @@ class ReminderItem {
     this.dueHandled = false,
     this.pendingPhase,
     this.snoozedUntil,
+    this.calendarRepeat = false,
+    this.calendarThrough,
+    this.repeatReminderMinutes,
+    this.nextRepeatAt,
+    this.projected = false,
   });
   final String id, title, notes;
   final DateTime dueAt, createdAt;
@@ -229,6 +234,9 @@ class ReminderItem {
   final EarlyReminder? early;
   final bool enabled, earlyHandled, dueHandled;
   final DateTime? completedAt, deletedAt, anchor, snoozedUntil;
+  final bool calendarRepeat, projected;
+  final DateTime? calendarThrough, nextRepeatAt;
+  final int? repeatReminderMinutes;
   bool get isCompleted => completedAt != null;
   int get daySection => dueAt.hour < 12
       ? 0
@@ -237,6 +245,10 @@ class ReminderItem {
       : 2;
   String? phaseDue(DateTime now) {
     if (!enabled || isCompleted || deletedAt != null) return null;
+    // Additional alerts belong to this occurrence, never to yesterday's task.
+    final end = DateTime(dueAt.year, dueAt.month, dueAt.day + 1);
+    if (calendarRepeat && !now.isBefore(end)) return null;
+    if (pendingPhase == 'again' && !now.isBefore(end)) return null;
     if (pendingPhase == 'early' && !dueHandled && !now.isBefore(dueAt)) {
       return 'due';
     }
@@ -246,6 +258,12 @@ class ReminderItem {
           : null;
     }
     if (!dueHandled && !now.isBefore(dueAt)) return 'due';
+    if (repeatReminderMinutes != null &&
+        nextRepeatAt != null &&
+        !now.isBefore(nextRepeatAt!) &&
+        now.isBefore(end)) {
+      return 'again';
+    }
     if (early != null &&
         !earlyHandled &&
         !now.isBefore(early!.before(dueAt)) &&
@@ -255,8 +273,11 @@ class ReminderItem {
     return null;
   }
 
-  DateTime phaseTime(String phase) =>
-      phase == 'early' ? early!.before(dueAt) : dueAt;
+  DateTime phaseTime(String phase) => phase == 'early'
+      ? early!.before(dueAt)
+      : phase == 'again'
+      ? nextRepeatAt!
+      : dueAt;
   Map<String, dynamic> toJson() => {
     'id': id,
     'title': title,
@@ -279,9 +300,31 @@ class ReminderItem {
     'dueHandled': dueHandled,
     'pendingPhase': pendingPhase,
     'snoozedUntil': snoozedUntil?.toIso8601String(),
+    'calendarRepeat': calendarRepeat,
+    'calendarThrough': calendarThrough?.toIso8601String(),
+    'repeatReminderMinutes': repeatReminderMinutes,
+    'nextRepeatAt': nextRepeatAt?.toIso8601String(),
   };
   ReminderItem patch(Map<String, dynamic> values) =>
       ReminderItem.fromJson({...toJson(), ...values});
+  ReminderItem asProjection() => ReminderItem(
+    id: id,
+    title: title,
+    dueAt: dueAt,
+    createdAt: createdAt,
+    notes: notes,
+    subtasks: subtasks,
+    rule: rule,
+    early: early,
+    enabled: enabled,
+    seriesRoot: seriesRoot,
+    anchor: anchor,
+    calendarRepeat: calendarRepeat,
+    repeatReminderMinutes: repeatReminderMinutes,
+    projected: true,
+    earlyHandled: earlyHandled,
+    dueHandled: dueHandled,
+  );
   factory ReminderItem.fromJson(Map<String, dynamic> json) {
     DateTime? date(String name) => json[name] == null
         ? null
@@ -290,7 +333,15 @@ class ReminderItem {
     final phase = json['pendingPhase'] as String?;
     if (!RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(id) ||
         (json['title'] as String).trim().isEmpty ||
-        (phase != null && phase != 'early' && phase != 'due') ||
+        (phase != null &&
+            phase != 'early' &&
+            phase != 'due' &&
+            phase != 'again') ||
+        (phase == 'again' && json['nextRepeatAt'] == null) ||
+        (json['repeatReminderMinutes'] != null &&
+            (json['repeatReminderMinutes'] is! int ||
+                json['repeatReminderMinutes'] < 1 ||
+                json['repeatReminderMinutes'] > 720)) ||
         (phase == 'early' && json['early'] == null) ||
         (json['snoozedUntil'] != null && phase == null)) {
       throw const FormatException('提醒事项内容无效');
@@ -323,6 +374,10 @@ class ReminderItem {
       dueHandled: json['dueHandled'] as bool,
       pendingPhase: phase,
       snoozedUntil: date('snoozedUntil'),
+      calendarRepeat: json['calendarRepeat'] as bool? ?? false,
+      calendarThrough: date('calendarThrough'),
+      repeatReminderMinutes: json['repeatReminderMinutes'] as int?,
+      nextRepeatAt: date('nextRepeatAt'),
     );
   }
   String toMarkdown() =>

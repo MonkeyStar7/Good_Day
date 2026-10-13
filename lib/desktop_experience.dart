@@ -222,6 +222,34 @@ class SystemDesktopExperience extends DesktopExperience
     await windowManager.destroy();
   }
 
+  Future<bool> installUpdate(File installer) async {
+    if (_isExiting || _isCheckingExit) return false;
+    if (!await (_saveGuard?.call() ?? Future.value(true))) return false;
+    final appDirectory = File(Platform.resolvedExecutable).parent;
+    final root = appDirectory.parent;
+    if (appDirectory.uri.pathSegments
+                .where((p) => p.isNotEmpty)
+                .last
+                .toLowerCase() !=
+            'app' ||
+        !await File('${root.path}${Platform.pathSeparator}unins000.exe')
+            .exists()) {
+      throw const FileSystemException('请使用安装包安装 Good Day 后再进行应用内更新');
+    }
+    // 1.4.13+ installers wait for this process to exit before touching App.
+    await Process.start(installer.path, [
+      '/SILENT',
+      '/SUPPRESSMSGBOXES',
+      '/NORESTART',
+      '/SP-',
+      '/GOODDAYUPDATE=1',
+      '/GOODDAYWAITPID=$pid',
+      '/DIR=${root.path}',
+    ], mode: ProcessStartMode.detached);
+    await exitApp();
+    return true;
+  }
+
   @override
   void onWindowFocus() => _refreshRequests.value++;
 

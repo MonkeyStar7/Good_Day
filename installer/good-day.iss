@@ -1,8 +1,8 @@
 #ifndef AppVersion
-  #define AppVersion "1.4.12"
+  #define AppVersion "1.4.13"
 #endif
 #ifndef AppBuild
-  #define AppBuild "26"
+  #define AppBuild "27"
 #endif
 #ifndef BundleDir
   #error BundleDir is required
@@ -64,7 +64,8 @@ Name: "{userprograms}\{#SetupName}"; Filename: "{app}\App\good_day.exe"; Working
 Name: "{userdesktop}\{#SetupName}"; Filename: "{app}\App\good_day.exe"; WorkingDir: "{app}\App"
 
 [Run]
-Filename: "{app}\App\good_day.exe"; WorkingDir: "{app}\App"; Description: "打开 Good Day"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\App\good_day.exe"; WorkingDir: "{app}\App"; Description: "打开 Good Day"; Flags: nowait postinstall skipifsilent; Check: not IsAppUpdate
+Filename: "{app}\App\good_day.exe"; WorkingDir: "{app}\App"; Flags: nowait; Check: IsAppUpdate
 
 [Code]
 var
@@ -73,6 +74,18 @@ var
 
 function GetTickCount: LongWord;
   external 'GetTickCount@kernel32.dll stdcall';
+
+function OpenProcess(Access: LongWord; InheritHandle: Boolean; ProcessId: LongWord): THandle;
+  external 'OpenProcess@kernel32.dll stdcall';
+function WaitForSingleObject(Handle: THandle; Milliseconds: LongWord): LongWord;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+function CloseHandle(Handle: THandle): Boolean;
+  external 'CloseHandle@kernel32.dll stdcall';
+
+function IsAppUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:GOODDAYUPDATE|0}') <> '0';
+end;
 
 function ConfigPath: String;
 var Profile: String;
@@ -163,9 +176,18 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
-var Data, App, Probe, CurrentData: String;
+var Data, App, Probe, CurrentData: String; ProcessId: Integer; Handle: THandle; WaitResult: LongWord;
 begin
   Result := '';
+  ProcessId := StrToIntDef(ExpandConstant('{param:GOODDAYWAITPID|0}'), 0);
+  if ProcessId > 0 then begin
+    Handle := OpenProcess($00100000, False, ProcessId);
+    if Handle <> 0 then begin
+      WaitResult := WaitForSingleObject(Handle, 30000);
+      CloseHandle(Handle);
+      if WaitResult <> 0 then begin Result := '软件尚未退出，更新已停止。请保存当前编辑后重试。'; Exit; end;
+    end;
+  end;
   if CheckForMutexes(SetupMutexName(ExpandConstant('{app}\App\good_day.exe'))) or CheckForMutexes(SetupMutexName(ExpandConstant('{app}\good_day.exe'))) then begin
     Result := '请先在任务栏托盘中右键 Good Day，选择“退出”，保存待办后再重试安装。';
     Exit;

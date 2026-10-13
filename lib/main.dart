@@ -21,6 +21,8 @@ import 'task_inline_options.dart';
 import 'event_reminder_service.dart';
 import 'reminder_pages.dart';
 import 'reminder_sound.dart';
+import 'app_update.dart';
+import 'app_update_panel.dart';
 import 'reminder_history_page.dart';
 import 'data/vault_repository.dart';
 import 'desktop_experience.dart';
@@ -479,6 +481,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final OperationQueue _actions = OperationQueue();
   final OperationQueue _navigation = OperationQueue();
   Timer? _dateTimer;
+  AppUpdateController? _updates;
   late DateTime _displayDate;
   bool _refreshing = false;
   bool _transitioning = false;
@@ -570,6 +573,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     _repository = widget.repository;
+    final desktop = widget.desktopExperience;
+    if (Platform.isWindows &&
+        desktop is SystemDesktopExperience &&
+        !const bool.fromEnvironment('INTERNAL_REVIEW')) {
+      _updates = AppUpdateController(install: desktop.installUpdate);
+      unawaited(_checkAppUpdate());
+    }
     _displayDate = _now();
     _reminders = EventReminderService(
       repository: () => _repository,
@@ -616,6 +626,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _handleOpenSettingsRequest,
     );
     _dateTimer?.cancel();
+    _updates?.dispose();
     _reminderTimer?.cancel();
     _reminders.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -629,6 +640,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _load() async {
     try {
+      if (_repository.usesReminderWorkflow) {
+        await _repository.migrateReminderRecurrence();
+      }
       final tasks = await _repository.loadTasks();
       final goals = _repository.usesReminderWorkflow
           ? <GoodDayGoal>[]
@@ -654,6 +668,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _loading = false;
         _error = error.toString();
       });
+    }
+  }
+
+  Future<void> _checkAppUpdate() async {
+    await _updates?.check();
+    if (mounted && _updates?.release != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Good Day ${_updates!.release!.version} 可以更新'),
+          action: SnackBarAction(label: '查看', onPressed: _openSettings),
+        ),
+      );
     }
   }
 
@@ -1260,6 +1286,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         transitionDuration: const Duration(milliseconds: 160),
         reverseTransitionDuration: const Duration(milliseconds: 120),
         pageBuilder: (context, animation, secondaryAnimation) => SettingsPage(
+          updates: _updates,
           controller: widget.settingsController,
           initialVaultPath: _repository.vaultDirectory.path,
           onVaultSelected: _changeVault,
@@ -4568,6 +4595,7 @@ class SettingsPage extends StatefulWidget {
     this.isLaunchAtStartupEnabled,
     this.onLaunchAtStartupChanged,
     this.onOpenLegacyReminders,
+    this.updates,
   });
 
   final AppSettingsController controller;
@@ -4580,6 +4608,7 @@ class SettingsPage extends StatefulWidget {
   final IsLaunchAtStartupEnabledCallback? isLaunchAtStartupEnabled;
   final LaunchAtStartupChangedCallback? onLaunchAtStartupChanged;
   final VoidCallback? onOpenLegacyReminders;
+  final AppUpdateController? updates;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -5022,6 +5051,13 @@ class _SettingsPageState extends State<SettingsPage> {
                       const _PreferenceRow(label: '关闭窗口', value: '隐藏到托盘'),
                       Divider(height: 1, color: context.appColors.line),
                       const SizedBox(height: 20),
+                      if (widget.updates != null) ...[
+                        const _SettingsSectionTitle(label: '软件更新'),
+                        AppUpdatePanel(controller: widget.updates!),
+                        const SizedBox(height: 20),
+                        Divider(height: 1, color: context.appColors.line),
+                        const SizedBox(height: 20),
+                      ],
                       const _SettingsSectionTitle(label: '数据'),
                       if (widget.onOpenBackups != null)
                         _PreferenceRow(

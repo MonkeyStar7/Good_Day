@@ -71,6 +71,23 @@ try {
     Check ((Install-Validation @('/LOG=' + (Join-Path $root 'moved-upgrade.log'))) -eq 0) 'Upgrade after changing the data directory failed.'
     Check ((Get-FileHash -LiteralPath $config).Hash -eq $movedConfigHash) 'Migrated location was overwritten.'
     Check ((Get-FileHash -LiteralPath (Join-Path $moved 'keep.md')).Hash -eq $recordHash) 'Migrated Markdown changed.'
+    # Isolated application-driven upgrade: wait for caller, install, reopen.
+    $waiter = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 5') -WindowStyle Hidden -PassThru
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    Check ((Install-Validation @('/GOODDAYUPDATE=1', ('/GOODDAYWAITPID=' + $waiter.Id), ('/LOG=' + (Join-Path $root 'in-app-update.log')))) -eq 0) 'In-app upgrade failed.'
+    $watch.Stop()
+    Check ($watch.Elapsed.TotalSeconds -ge 4) 'Installer did not wait for the caller to exit.'
+    $reopened = @()
+    for ($attempt=0; $attempt -lt 30; $attempt++) {
+        $reopened = @(Get-Process good_day -ErrorAction SilentlyContinue | Where-Object Path -EQ (Join-Path $appFolder 'good_day.exe'))
+        if ($reopened.Count) { break }
+        Start-Sleep -Milliseconds 200
+    }
+    Check ($reopened.Count -eq 1) 'In-app update did not reopen the app.'
+    Start-Sleep -Seconds 2
+    foreach ($testApp in $reopened) { Stop-Process -Id $testApp.Id; Wait-Process -Id $testApp.Id -Timeout 15 -ErrorAction SilentlyContinue }
+    Check ((Get-FileHash -LiteralPath $config).Hash -eq $movedConfigHash) 'In-app update changed the data location.'
+    Check ((Get-FileHash -LiteralPath (Join-Path $moved 'keep.md')).Hash -eq $recordHash) 'In-app update changed Markdown.'
     [long]$hash = 0
     foreach ($character in ([IO.Path]::GetFullPath((Join-Path $appFolder 'good_day.exe')).ToLowerInvariant()).ToCharArray()) { $hash = ($hash * 31 + [int]$character) % 1000000007 }
     $mutex = [Threading.Mutex]::new($false, ('Local\GoodDay.Setup.' + $hash))
