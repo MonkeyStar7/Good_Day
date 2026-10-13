@@ -86,7 +86,10 @@ try {
     Check ($reopened.Count -eq 1) 'In-app update did not reopen the app.'
     Start-Sleep -Seconds 2
     foreach ($testApp in $reopened) { Stop-Process -Id $testApp.Id; Wait-Process -Id $testApp.Id -Timeout 15 -ErrorAction SilentlyContinue }
-    Check ((Get-FileHash -LiteralPath $config).Hash -eq $movedConfigHash) 'In-app update changed the data location.'
+    # Startup normalizes JSON whitespace; compare its actual path rather than
+    # treating a formatting-only byte change as a different data location.
+    Check ((Get-Content -LiteralPath $config -Raw | ConvertFrom-Json).vaultPath -eq $moved) 'In-app update changed the data location.'
+    $movedConfigHash = (Get-FileHash -LiteralPath $config).Hash
     Check ((Get-FileHash -LiteralPath (Join-Path $moved 'keep.md')).Hash -eq $recordHash) 'In-app update changed Markdown.'
     [long]$hash = 0
     foreach ($character in ([IO.Path]::GetFullPath((Join-Path $appFolder 'good_day.exe')).ToLowerInvariant()).ToCharArray()) { $hash = ($hash * 31 + [int]$character) % 1000000007 }
