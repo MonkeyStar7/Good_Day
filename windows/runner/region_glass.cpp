@@ -219,6 +219,22 @@ void RegionGlass::Hide() {
     if (panel)
       ShowWindow(panel, SW_HIDE);
 }
+void RegionGlass::Refresh() {
+  if (!IsWindowVisible(state_->window) || IsIconic(state_->window))
+    return;
+  for (int index = 0; index < 5; ++index) {
+    if (!state_->panels[index] || !IsWindowVisible(state_->panels[index]))
+      continue;
+    try {
+      if (state_->visuals[index])
+        state_->visuals[index].Brush(
+            state_->compositor.CreateHostBackdropBrush());
+      else
+        Frost(state_->panels[index]);
+    } catch (const winrt::hresult_error &) {
+    }
+  }
+}
 bool RegionGlass::Update(double scale, bool notes, int selected, int count) {
   if (state_->updating)
     return true;

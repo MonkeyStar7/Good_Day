@@ -12,6 +12,7 @@ public:
   ~WindowSurface();
   void ResizeRegion();
   void HideGlass();
+  void RefreshBackdrop();
 
 private:
   HWND window_;

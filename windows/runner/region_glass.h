@@ -11,6 +11,7 @@ public:
   ~RegionGlass();
   bool Update(double scale, bool notes, int selected, int count);
   void Hide();
+  void Refresh();
 
 private:
   struct State;

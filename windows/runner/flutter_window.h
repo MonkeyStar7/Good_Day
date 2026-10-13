@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "backdrop_refresh.h"
 #include "reminder_window.h"
 #include "win32_window.h"
 #include "window_surface.h"
@@ -30,6 +31,7 @@ private:
   flutter::DartProject project_;
   std::unique_ptr<ReminderWindow> reminder_window_;
   std::unique_ptr<WindowSurface> window_surface_;
+  std::unique_ptr<BackdropRefresh> backdrop_refresh_;
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;

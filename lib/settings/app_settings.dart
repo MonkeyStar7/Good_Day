@@ -4,6 +4,7 @@ import 'dart:io';
 import '../data/safe_file.dart';
 import '../data/vault_backups.dart';
 import '../app_colors.dart';
+import '../reminder_sound.dart';
 
 import 'package:flutter/material.dart';
 
@@ -78,11 +79,13 @@ class AppSettings {
     this.accent = AppAccent.white,
     this.interfaceSize = InterfaceSize.medium,
     this.glassTransparency = 0.55,
+    this.reminderSound = ReminderSound.woodTap,
   });
 
   final AppFont font;
   final AppAccent accent;
   final InterfaceSize interfaceSize;
+  final ReminderSound reminderSound;
 
   /// Only the background is translucent; text and controls remain opaque.
   final double glassTransparency;
@@ -92,12 +95,14 @@ class AppSettings {
     AppAccent? accent,
     InterfaceSize? interfaceSize,
     double? glassTransparency,
+    ReminderSound? reminderSound,
   }) {
     return AppSettings(
       font: font ?? this.font,
       accent: accent ?? this.accent,
       interfaceSize: interfaceSize ?? this.interfaceSize,
       glassTransparency: glassTransparency ?? this.glassTransparency,
+      reminderSound: reminderSound ?? this.reminderSound,
     );
   }
 
@@ -106,6 +111,7 @@ class AppSettings {
     'accent': accent.key,
     'interfaceSize': interfaceSize.key,
     'glassTransparency': glassTransparency,
+    'reminderSound': reminderSound.key,
   };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -113,6 +119,7 @@ class AppSettings {
       font: AppFont.fromKey(json['font'] as String?),
       accent: AppAccent.fromKey(json['accent'] as String?),
       interfaceSize: InterfaceSize.fromKey(json['interfaceSize']),
+      reminderSound: ReminderSound.fromKey(json['reminderSound']),
       glassTransparency:
           json['glassTransparency'] is num &&
               (json['glassTransparency'] as num).isFinite
@@ -215,4 +222,13 @@ class AppSettingsController extends ChangeNotifier {
     settings = next;
     notifyListeners();
   });
+
+  Future<void> setReminderSound(ReminderSound sound) =>
+      _operations.run(() async {
+        if (settings.reminderSound == sound) return;
+        final next = settings.copyWith(reminderSound: sound);
+        await store?.save(next);
+        settings = next;
+        notifyListeners();
+      });
 }

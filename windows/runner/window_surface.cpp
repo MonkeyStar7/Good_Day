@@ -67,6 +67,7 @@ WindowSurface::WindowSurface(flutter::BinaryMessenger *messenger, HWND window)
 
 WindowSurface::~WindowSurface() { channel_->SetMethodCallHandler(nullptr); }
 void WindowSurface::HideGlass() { glass_->Hide(); }
+void WindowSurface::RefreshBackdrop() { glass_->Refresh(); }
 
 void WindowSurface::ResizeRegion() {
   if (resizing_)

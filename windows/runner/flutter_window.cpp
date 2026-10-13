@@ -35,6 +35,10 @@ bool FlutterWindow::OnCreate() {
           flutter_controller_->engine()->messenger(), "good_day/lifecycle",
           &flutter::StandardMethodCodec::GetInstance());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
+  backdrop_refresh_ = std::make_unique<BackdropRefresh>(GetHandle(), [this]() {
+    window_surface_->RefreshBackdrop();
+    flutter_controller_->ForceRedraw();
+  });
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() { this->Show(); });
 
@@ -47,6 +51,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  backdrop_refresh_ = nullptr;
   window_surface_ = nullptr;
   reminder_window_ = nullptr;
   lifecycle_channel_ = nullptr;
@@ -61,6 +66,8 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (backdrop_refresh_ && backdrop_refresh_->HandleMessage(message, wparam))
+    return 0;
   if (window_surface_ && message == WM_SHOWWINDOW && !wparam)
     window_surface_->HideGlass();
   if (window_surface_ &&

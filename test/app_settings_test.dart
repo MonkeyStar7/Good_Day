@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:good_day/settings/app_settings.dart';
 import 'package:good_day/settings/vault_location_store.dart';
+import 'package:good_day/reminder_sound.dart';
 
 void main() {
   test(
@@ -32,6 +33,7 @@ void main() {
     expect(const AppSettings().font, AppFont.appleStyle);
     expect(const AppSettings().accent, AppAccent.white);
     expect(const AppSettings().glassTransparency, 0.55);
+    expect(const AppSettings().reminderSound, ReminderSound.woodTap);
     expect(AppSettings.fromJson({}).accent, AppAccent.white);
     expect(AppSettings.fromJson({'accent': 'forest'}).accent, AppAccent.forest);
   });
@@ -46,6 +48,7 @@ void main() {
       accent: AppAccent.white,
       interfaceSize: InterfaceSize.large,
       glassTransparency: 0.95,
+      reminderSound: ReminderSound.warmKeys,
     );
     await store.save(settings);
 
@@ -54,6 +57,7 @@ void main() {
     expect(loaded.accent, AppAccent.white);
     expect(loaded.interfaceSize, InterfaceSize.large);
     expect(loaded.glassTransparency, 0.95);
+    expect(loaded.reminderSound, ReminderSound.warmKeys);
     expect(await store.file.exists(), isTrue);
   });
 

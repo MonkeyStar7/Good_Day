@@ -9,6 +9,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'models/good_day_event.dart';
 import 'data/safe_file.dart';
+import 'reminder_sound.dart';
 
 abstract interface class DesktopExperience {
   ValueListenable<int> get openSettingsRequests;
@@ -53,6 +54,7 @@ class SystemDesktopExperience extends DesktopExperience
   bool _reminderOnTop = false;
   double interfaceScale = 1;
   double glassTransparency = 0.55;
+  ReminderSound reminderSound = ReminderSound.woodTap;
   final _topmostOperations = OperationQueue();
   Future<bool> Function()? _saveGuard;
   static const _lifecycle = MethodChannel('good_day/lifecycle');
@@ -165,6 +167,7 @@ class SystemDesktopExperience extends DesktopExperience
         'accentRgb': accentRgb,
         'interfaceScale': interfaceScale,
         'glassTransparency': glassTransparency,
+        'sound': reminderSound.key,
         'title': event.title,
         'time': '事件时间：${eventDateTimeLabel(occurrence)}',
         'date':

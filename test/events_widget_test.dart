@@ -227,6 +227,10 @@ void main() {
       expect(find.byKey(const Key('nav-events')), findsNothing);
       await tester.tap(find.byKey(const Key('settings-button')));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('legacy-reminders-button')),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('legacy-reminders-button')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('edit-event-existing')));
@@ -356,6 +360,10 @@ void main() {
       );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('settings-button')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('legacy-reminders-button')),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('legacy-reminders-button')));
       await tester.pumpAndSettle();

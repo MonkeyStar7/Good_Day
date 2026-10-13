@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:good_day/desktop_experience.dart';
 import 'package:good_day/models/good_day_event.dart';
+import 'package:good_day/reminder_sound.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -39,7 +40,8 @@ void main() {
       final saved = Completer<void>();
       final desktop = SystemDesktopExperience()
         ..interfaceScale = 1.5
-        ..glassTransparency = 0.65;
+        ..glassTransparency = 0.65
+        ..reminderSound = ReminderSound.warmKeys;
       final shown = desktop.showEventReminder(
         event(),
         event().startsAt,
@@ -50,6 +52,7 @@ void main() {
       expect(calls.single.method, 'show');
       expect((calls.single.arguments as Map)['interfaceScale'], 1.5);
       expect((calls.single.arguments as Map)['glassTransparency'], 0.65);
+      expect((calls.single.arguments as Map)['sound'], 'warm_keys');
       final resolving = action(0);
       await Future<void>.delayed(Duration.zero);
       expect(calls.map((call) => call.method), ['show']);

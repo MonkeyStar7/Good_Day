@@ -1,4 +1,5 @@
 #include "reminder_window.h"
+#include "reminder_audio.h"
 #include <algorithm>
 #include <cmath>
 #include <dwmapi.h>
@@ -173,6 +174,16 @@ ReminderWindow::ReminderWindow(flutter::BinaryMessenger *messenger, HWND owner)
         return;
       }
       result->Success();
+    } else if (call.method_name() == "previewSound") {
+      const auto data =
+          call.arguments()
+              ? std::get_if<flutter::EncodableMap>(call.arguments())
+              : nullptr;
+      if (!data || !PlayReminderSound(Text(*data, "sound"))) {
+        result->Error("reminder_sound", "Cannot play reminder sound");
+        return;
+      }
+      result->Success();
     } else if (call.method_name() == "dismiss") {
       Close();
       result->Success();
@@ -309,6 +320,8 @@ bool ReminderWindow::Show(const flutter::EncodableMap &data) {
   SetWindowPos(window_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
   SetForegroundWindow(window_);
   SetFocus(buttons_[3]);
+  const auto sound = Text(data, "sound");
+  PlayReminderSound(sound.empty() ? L"wood_tap" : sound);
   return true;
 }
 void ReminderWindow::Close() {

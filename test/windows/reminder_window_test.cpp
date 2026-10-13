@@ -1,3 +1,4 @@
+#include "reminder_audio.h"
 #include "reminder_window.h"
 #include "window_surface.h"
 #include <dwmapi.h>
@@ -107,9 +108,14 @@ int main(int argc, char **argv) {
                              nullptr, GetModuleHandle(nullptr), nullptr);
   try {
     Check(owner != nullptr, "test owner creation failed");
+    Check(!PlayReminderSound(L"../outside"), "sound path traversal accepted");
+    Check(!PlayReminderSound(L"unknown"), "unknown sound accepted");
+    Check(PlayReminderSound(L"wood_tap"), "bundled wood sound did not play");
+    Check(PlayReminderSound(L"none"), "mute failed");
     Messenger messenger;
     ReminderWindow reminder(&messenger, owner);
     const flutter::EncodableMap args = {
+        {flutter::EncodableValue("sound"), flutter::EncodableValue("none")},
         {flutter::EncodableValue("title"),
          flutter::EncodableValue("准备开始下午的学习")},
         {flutter::EncodableValue("time"),

@@ -20,6 +20,7 @@ import 'task_browser_page.dart';
 import 'task_inline_options.dart';
 import 'event_reminder_service.dart';
 import 'reminder_pages.dart';
+import 'reminder_sound.dart';
 import 'reminder_history_page.dart';
 import 'data/vault_repository.dart';
 import 'desktop_experience.dart';
@@ -202,6 +203,7 @@ Future<void> _startApplication(List<String> arguments) async {
       );
       desktopExperience.interfaceScale = settings.interfaceSize.scale;
       desktopExperience.glassTransparency = settings.glassTransparency;
+      desktopExperience.reminderSound = settings.reminderSound;
     }
 
     settingsController.prepareInterfaceSize = applyAppearance;
@@ -213,6 +215,7 @@ Future<void> _startApplication(List<String> arguments) async {
         settingsController.settings.interfaceSize.scale;
     desktopExperience.glassTransparency =
         settingsController.settings.glassTransparency;
+    desktopExperience.reminderSound = settingsController.settings.reminderSound;
     final appearanceOperations = OperationQueue();
     var lastSize = settingsController.settings.interfaceSize;
     settingsController.addListener(() {
@@ -220,6 +223,8 @@ Future<void> _startApplication(List<String> arguments) async {
           settingsController.settings.interfaceSize.scale;
       desktopExperience.glassTransparency =
           settingsController.settings.glassTransparency;
+      desktopExperience.reminderSound =
+          settingsController.settings.reminderSound;
       if (lastSize == settingsController.settings.interfaceSize) return;
       lastSize = settingsController.settings.interfaceSize;
       unawaited(
@@ -4901,6 +4906,83 @@ class _SettingsPageState extends State<SettingsPage> {
                       Divider(height: 1, color: context.appColors.line),
                       const SizedBox(height: 20),
                       const _SettingsSectionTitle(label: '桌面'),
+                      const SizedBox(height: 8),
+                      Text(
+                        '提醒声音',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: context.appColors.muted,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<ReminderSound>(
+                                key: const Key('reminder-sound-choice'),
+                                value: settings.reminderSound,
+                                isExpanded: true,
+                                menuMaxHeight: 240,
+                                borderRadius: BorderRadius.circular(12),
+                                items: [
+                                  for (final sound in ReminderSound.values)
+                                    DropdownMenuItem(
+                                      value: sound,
+                                      child: Text(
+                                        sound.label,
+                                        style: const TextStyle(fontSize: 13),
+                                      ),
+                                    ),
+                                ],
+                                onChanged: (sound) async {
+                                  if (sound == null) return;
+                                  try {
+                                    await widget.controller.setReminderSound(
+                                      sound,
+                                    );
+                                  } catch (_) {
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                            const SnackBar(
+                                              content: Text('提醒声音未能保存，请重试'),
+                                            ),
+                                          );
+                                    }
+                                  }
+                                },
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          TextButton.icon(
+                            key: const Key('preview-reminder-sound'),
+                            onPressed:
+                                settings.reminderSound == ReminderSound.none
+                                ? null
+                                : () async {
+                                    try {
+                                      await settings.reminderSound.preview();
+                                    } catch (_) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                              const SnackBar(
+                                                content: Text('暂时无法试听，请检查系统声音'),
+                                              ),
+                                            );
+                                      }
+                                    }
+                                  },
+                            icon: const Icon(
+                              Icons.volume_up_outlined,
+                              size: 18,
+                            ),
+                            label: const Text('试听'),
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 8),
                       if (widget.onOpenLegacyReminders != null)
                         _PreferenceRow(
