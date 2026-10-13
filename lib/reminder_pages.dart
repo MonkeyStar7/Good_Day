@@ -1443,7 +1443,7 @@ class _ReminderChoice<T> extends StatelessWidget {
         itemHeight: 48,
         borderRadius: BorderRadius.circular(12),
         dropdownColor: context.appColors.paper.withValues(alpha: 1),
-        focusColor: context.appColors.hover,
+        focusColor: Colors.transparent,
         style: Theme.of(context).textTheme.bodyMedium!
             .copyWith(fontSize: 13, height: 1, color: context.appColors.ink),
         icon: Icon(Icons.expand_more, size: 16, color: context.appColors.muted),
