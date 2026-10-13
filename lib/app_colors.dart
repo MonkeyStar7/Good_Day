@@ -54,6 +54,9 @@ class AppColors {
       ? const Color(0xFF81765D)
       : Color.lerp(const Color(0xFF59616A), accent, 0.18)!;
   Color get hover => accent.withValues(alpha: 0.09);
+  Color get controlFill =>
+      paper.withValues(alpha: 0.12 + 0.10 * (1 - transparency));
+  Color get controlLine => muted.withValues(alpha: 0.22);
   Color note(int index) => _glass(
     _white
         ? const Color(0xFFF5F7FA)

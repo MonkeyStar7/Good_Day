@@ -977,9 +977,10 @@ class ReminderEditorState extends State<ReminderEditor>
         ?.key;
     final colors = context.appColors;
     final dateStyle = TextButton.styleFrom(
-      backgroundColor: colors.paper,
+      backgroundColor: colors.controlFill,
       foregroundColor: colors.ink,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      side: BorderSide(color: colors.controlLine),
       minimumSize: Size.zero,
       textStyle: Theme.of(context).textTheme.bodyMedium!.copyWith(fontSize: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -1402,7 +1403,7 @@ class _ReminderSettingCard extends StatelessWidget {
   final Widget child;
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(12),
+    padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
       color: Color.lerp(context.appColors.paper, context.appColors.panel, 0.65),
       borderRadius: BorderRadius.circular(12),
@@ -1426,10 +1427,11 @@ class _ReminderChoice<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     height: 36,
-    padding: const EdgeInsets.symmetric(horizontal: 8),
+    padding: const EdgeInsets.symmetric(horizontal: 12),
     decoration: BoxDecoration(
-      color: context.appColors.paper,
+      color: context.appColors.controlFill,
       borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: context.appColors.controlLine),
     ),
     child: DropdownButtonHideUnderline(
       child: DropdownButton<T>(

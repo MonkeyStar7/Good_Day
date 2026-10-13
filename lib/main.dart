@@ -4968,7 +4968,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                 horizontal: 12,
                               ),
                               decoration: BoxDecoration(
-                                color: context.appColors.paper,
+                                color: context.appColors.controlFill,
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
                                   color: context.appColors.line.withValues(
