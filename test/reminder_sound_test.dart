@@ -10,15 +10,21 @@ import 'package:good_day/settings/app_settings.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  test('wood default, unknown settings and explicit silence remain stable', () {
-    expect(AppSettings.fromJson({}).reminderSound, ReminderSound.woodTap);
+  test('silent default, unknown settings and explicit sound remain stable', () {
+    expect(AppSettings.fromJson({}).reminderSound, ReminderSound.none);
     expect(
       AppSettings.fromJson({'reminderSound': 'broken'}).reminderSound,
-      ReminderSound.woodTap,
+      ReminderSound.none,
     );
     expect(
       AppSettings.fromJson({'reminderSound': 'none'}).reminderSound,
       ReminderSound.none,
+    );
+  });
+  test('explicit existing sound is preserved', () {
+    expect(
+      AppSettings.fromJson({'reminderSound': 'wood_tap'}).reminderSound,
+      ReminderSound.woodTap,
     );
   });
   test('four bundled tones are short PCM WAV files with audible, unclipped samples', () async {
@@ -49,6 +55,7 @@ void main() {
     'settings preview uses selected sound and mute disables preview',
     (tester) async {
       final settings = AppSettingsController.inMemory();
+      await settings.setReminderSound(ReminderSound.woodTap);
       addTearDown(settings.dispose);
       final calls = <MethodCall>[];
       const channel = MethodChannel('good_day/reminder');

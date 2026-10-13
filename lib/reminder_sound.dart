@@ -10,7 +10,7 @@ enum ReminderSound {
   const ReminderSound(this.key, this.label);
   final String key, label;
   static ReminderSound fromKey(Object? key) =>
-      values.firstWhere((sound) => sound.key == key, orElse: () => woodTap);
+      values.firstWhere((sound) => sound.key == key, orElse: () => none);
   Future<void> preview() =>
       const MethodChannel('good_day/reminder')
           .invokeMethod<void>('previewSound', {'sound': key});

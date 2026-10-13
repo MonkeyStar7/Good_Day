@@ -79,7 +79,7 @@ class AppSettings {
     this.accent = AppAccent.white,
     this.interfaceSize = InterfaceSize.medium,
     this.glassTransparency = 0.55,
-    this.reminderSound = ReminderSound.woodTap,
+    this.reminderSound = ReminderSound.none,
   });
 
   final AppFont font;

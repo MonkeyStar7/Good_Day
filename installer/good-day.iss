@@ -1,8 +1,8 @@
 #ifndef AppVersion
-  #define AppVersion "1.4.18"
+  #define AppVersion "1.4.19"
 #endif
 #ifndef AppBuild
-  #define AppBuild "32"
+  #define AppBuild "33"
 #endif
 #ifndef BundleDir
   #error BundleDir is required

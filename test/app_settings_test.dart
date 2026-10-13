@@ -33,7 +33,7 @@ void main() {
     expect(const AppSettings().font, AppFont.appleStyle);
     expect(const AppSettings().accent, AppAccent.white);
     expect(const AppSettings().glassTransparency, 0.55);
-    expect(const AppSettings().reminderSound, ReminderSound.woodTap);
+    expect(const AppSettings().reminderSound, ReminderSound.none);
     expect(AppSettings.fromJson({}).accent, AppAccent.white);
     expect(AppSettings.fromJson({'accent': 'forest'}).accent, AppAccent.forest);
   });

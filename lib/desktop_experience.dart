@@ -54,7 +54,7 @@ class SystemDesktopExperience extends DesktopExperience
   bool _reminderOnTop = false;
   double interfaceScale = 1;
   double glassTransparency = 0.55;
-  ReminderSound reminderSound = ReminderSound.woodTap;
+  ReminderSound reminderSound = ReminderSound.none;
   final _topmostOperations = OperationQueue();
   Future<bool> Function()? _saveGuard;
   static const _lifecycle = MethodChannel('good_day/lifecycle');
