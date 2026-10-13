@@ -49,7 +49,6 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
   int _months = 12;
   bool _showCompleted = false;
   final _expandedMonths = <String>{};
-  bool _expandDetails = false;
   var _editor = GlobalKey<ReminderEditorState>();
   @override
   void initState() {
@@ -103,7 +102,6 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
     String section,
     DateTime date, [
     ReminderItem? item,
-    bool expand = true,
   ]) async {
     if (!await (_editor.currentState?.flushPendingEdits() ??
         Future.value(true))) {
@@ -115,7 +113,6 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
       _draftSection = section;
       _draftDate = date;
       _editingItem = item;
-      _expandDetails = expand;
     });
     widget.onEditingChanged(true);
   }
@@ -137,7 +134,6 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
     key: _editor,
     repository: widget.repository,
     item: _editingItem,
-    initiallyExpanded: _expandDetails,
     initialDate: _draftDate!,
     onClosed: _closeEditor,
     onSaved: () async {
@@ -206,26 +202,12 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
                           ),
                         ),
                       ),
-                      IconButton(
-                        key: Key('expand-reminder-${item.id}'),
-                        style: item.subtasks.isEmpty
-                            ? null
-                            : IconButton.styleFrom(
-                                minimumSize: const Size(32, 32),
-                                maximumSize: const Size(32, 32),
-                                padding: EdgeInsets.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                        tooltip: '展开事项设置',
-                        constraints: const BoxConstraints.tightFor(
-                          width: 32,
-                          height: 32,
-                        ),
-                        padding: EdgeInsets.zero,
-                        onPressed: () =>
-                            _openEditor(section, item.dueAt, item, true),
-                        icon: Icon(
+                      SizedBox(
+                        width: 32,
+                        height: 32,
+                        child: Icon(
                           Icons.arrow_right,
+                          key: Key('reminder-indicator-${item.id}'),
                           size: 22,
                           color: context.appColors.muted,
                         ),
@@ -648,12 +630,10 @@ class ReminderEditor extends StatefulWidget {
     required this.onClosed,
     required this.onSaved,
     this.item,
-    this.initiallyExpanded = true,
   });
   final VaultRepository repository;
   final DateTime initialDate;
   final ReminderItem? item;
-  final bool initiallyExpanded;
   final VoidCallback onClosed;
   final Future<void> Function() onSaved;
   @override
@@ -674,22 +654,23 @@ class ReminderEditorState extends State<ReminderEditor>
       _customLead = false,
       _showTime = false;
   late bool _enabled;
-  late bool _expanded;
   late List<GoodDaySubtask> _subtasks;
   bool _subtasksChanged = false;
   int _subtaskSequence = 0;
+  ReminderItem? _persistedItem;
+  bool _emptyDiscarded = false;
   final _interval = TextEditingController(text: '1');
   final _leadAmount = TextEditingController(text: '5');
   @override
   void initState() {
     super.initState();
     _title = TextEditingController(text: widget.item?.title ?? '');
+    _persistedItem = widget.item;
     _notes = TextEditingController(text: widget.item?.notes ?? '');
     _due = widget.item?.dueAt ?? widget.initialDate;
     _rule = widget.item?.rule ?? const ReminderRule(RepeatUnit.none);
     _early = widget.item?.early;
     _enabled = widget.item?.enabled ?? false;
-    _expanded = widget.initiallyExpanded;
     _subtasks = [...?widget.item?.subtasks];
     _interval.text = '${_rule.interval}';
     _customRepeat = !ReminderRule.presets.containsKey(_rule.label);
@@ -699,10 +680,10 @@ class ReminderEditorState extends State<ReminderEditor>
           (lead) => lead?.label == _early!.label,
         );
     _leadAmount.text = '${_early?.amount ?? 5}';
-    _title.addListener(markPendingEdit);
-    _notes.addListener(markPendingEdit);
-    _interval.addListener(markPendingEdit);
-    _leadAmount.addListener(markPendingEdit);
+    _watchText(_title);
+    _watchText(_notes);
+    _watchText(_interval);
+    _watchText(_leadAmount);
     // Closing to the tray must close even an untouched editor, otherwise it
     // would keep background reminder delivery suspended indefinitely.
     markPendingEdit();
@@ -717,6 +698,20 @@ class ReminderEditorState extends State<ReminderEditor>
     super.dispose();
   }
 
+  void _watchText(TextEditingController controller) {
+    var text = controller.text;
+    controller.addListener(() {
+      if (text == controller.text) return;
+      text = controller.text;
+      markPendingEdit();
+    });
+  }
+
+  @override
+  Future<void> onEditsFlushed() async {
+    if (!_emptyDiscarded) await widget.onSaved();
+  }
+
   void _change(VoidCallback change) {
     markPendingEdit();
     setState(change);
@@ -729,13 +724,15 @@ class ReminderEditorState extends State<ReminderEditor>
 
   @override
   Future<bool> persistEdits() async {
-    if (widget.item == null &&
+    if (_persistedItem == null &&
         _title.text.trim().isEmpty &&
         _notes.text.trim().isEmpty &&
         !_detailsChanged) {
+      _emptyDiscarded = true;
       widget.onClosed();
       return true;
     }
+    _emptyDiscarded = false;
     final repeatInterval = int.tryParse(_interval.text);
     final leadAmount = int.tryParse(_leadAmount.text);
     if (_customRepeat &&
@@ -766,8 +763,8 @@ class ReminderEditorState extends State<ReminderEditor>
       final early = _enabled && _customLead
           ? EarlyReminder(leadAmount!, _early?.unit ?? LeadUnit.minute)
           : _early;
-      await widget.repository.saveReminder(
-        item: widget.item,
+      _persistedItem = await widget.repository.saveReminder(
+        item: _persistedItem,
         title: _title.text,
         notes: _notes.text,
         dueAt: _due,
@@ -788,7 +785,6 @@ class ReminderEditorState extends State<ReminderEditor>
               ]
             : null,
       );
-      await widget.onSaved();
       return true;
     } catch (error) {
       if (mounted) setState(() => _error = '未保存，请重试：$error');
@@ -799,6 +795,7 @@ class ReminderEditorState extends State<ReminderEditor>
   }
 
   Widget _inlineReminderControls(BuildContext context) => _ReminderSettingCard(
+    key: const Key('reminder-settings-card'),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -841,6 +838,7 @@ class ReminderEditorState extends State<ReminderEditor>
         .firstOrNull
         ?.key;
     return _ReminderSettingCard(
+      key: const Key('todo-repeat-card'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -979,7 +977,7 @@ class ReminderEditorState extends State<ReminderEditor>
         ?.key;
     final colors = context.appColors;
     final dateStyle = TextButton.styleFrom(
-      backgroundColor: colors.paper.withValues(alpha: 1),
+      backgroundColor: colors.paper,
       foregroundColor: colors.ink,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
       minimumSize: Size.zero,
@@ -1226,18 +1224,17 @@ class ReminderEditorState extends State<ReminderEditor>
                     },
                   ),
                 ),
-                IconButton(
-                  key: const Key('expand-reminder-details'),
-                  tooltip: _expanded ? '收起设置' : '展开设置',
-                  onPressed: _busy
-                      ? null
-                      : () => setState(() => _expanded = !_expanded),
-                  icon: Icon(
-                    _expanded ? Icons.arrow_drop_down : Icons.arrow_right,
+                SizedBox(
+                  width: 32,
+                  height: 32,
+                  child: Icon(
+                    Icons.arrow_drop_down,
+                    key: const Key('reminder-state-indicator'),
                     size: 19,
+                    color: context.appColors.muted,
                   ),
                 ),
-                if (_expanded && widget.item != null)
+                if (widget.item != null)
                   IconButton(
                     key: const Key('delete-reminder'),
                     tooltip: '移入垃圾桶',
@@ -1268,7 +1265,7 @@ class ReminderEditorState extends State<ReminderEditor>
                     style: const TextStyle(fontSize: 12),
                   ),
                   const SizedBox(height: 8),
-                  if (_expanded) ...[
+                  ...[
                     const SizedBox(height: 8),
                     for (var index = 0; index < _subtasks.length; index++)
                       Row(
@@ -1401,17 +1398,13 @@ class _DottedCirclePainter extends CustomPainter {
 }
 
 class _ReminderSettingCard extends StatelessWidget {
-  const _ReminderSettingCard({required this.child});
+  const _ReminderSettingCard({super.key, required this.child});
   final Widget child;
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
-      color: Color.lerp(
-        context.appColors.paper.withValues(alpha: 1),
-        context.appColors.panel.withValues(alpha: 1),
-        0.65,
-      ),
+      color: Color.lerp(context.appColors.paper, context.appColors.panel, 0.65),
       borderRadius: BorderRadius.circular(12),
       border: Border.all(color: context.appColors.line.withValues(alpha: 0.4)),
     ),
@@ -1435,7 +1428,7 @@ class _ReminderChoice<T> extends StatelessWidget {
     height: 36,
     padding: const EdgeInsets.symmetric(horizontal: 8),
     decoration: BoxDecoration(
-      color: context.appColors.paper.withValues(alpha: 1),
+      color: context.appColors.paper,
       borderRadius: BorderRadius.circular(8),
     ),
     child: DropdownButtonHideUnderline(
@@ -1541,7 +1534,7 @@ class _ReminderNumberFieldState extends State<_ReminderNumberField> {
         height: 36,
         padding: const EdgeInsets.symmetric(horizontal: 6),
         decoration: BoxDecoration(
-          color: context.appColors.paper.withValues(alpha: 1),
+          color: context.appColors.paper,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: _focused

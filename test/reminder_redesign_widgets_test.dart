@@ -151,10 +151,7 @@ void main() {
         expect(find.text('添加待办事项名称'), findsOneWidget);
         expect(find.byIcon(Icons.add), findsOneWidget);
         expect(
-          find.descendant(
-            of: find.byKey(const Key('expand-reminder-details')),
-            matching: find.byIcon(Icons.arrow_drop_down),
-          ),
+          find.byKey(const Key('reminder-state-indicator')),
           findsOneWidget,
         );
         await tester.enterText(find.byKey(const Key('reminder-title')), '复习数学');
@@ -432,25 +429,12 @@ void main() {
         expect(find.byKey(const Key('reminder-date')), findsNothing);
         expect(find.byKey(const Key('delete-reminder')), findsOneWidget);
         expect(find.byKey(const Key('add-reminder-subtask')), findsOneWidget);
-        await tester.tap(find.byKey(const Key('expand-reminder-details')));
-        await tester.pumpAndSettle();
         expect(
-          find.descendant(
-            of: find.byKey(const Key('expand-reminder-details')),
-            matching: find.byIcon(Icons.arrow_right),
-          ),
+          find.byKey(const Key('reminder-state-indicator')),
           findsOneWidget,
         );
-        expect(find.byKey(const Key('add-reminder-subtask')), findsNothing);
-        await tester.tap(find.byKey(const Key('expand-reminder-details')));
-        await tester.pumpAndSettle();
-        expect(
-          find.descendant(
-            of: find.byKey(const Key('expand-reminder-details')),
-            matching: find.byIcon(Icons.arrow_drop_down),
-          ),
-          findsOneWidget,
-        );
+        expect(find.byKey(const Key('add-reminder-subtask')), findsOneWidget);
+        expect(find.byKey(const Key('delete-reminder')), findsOneWidget);
         await openReminderOptions(tester);
         final scope = EditScope.of(
           tester.element(find.byKey(const Key('reminder-editor'))),

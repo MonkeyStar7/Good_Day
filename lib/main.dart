@@ -4839,6 +4839,17 @@ class _SettingsPageState extends State<SettingsPage> {
                           for (final size in InterfaceSize.values)
                             ChoiceChip(
                               key: Key('interface-size-${size.key}'),
+                              backgroundColor: context.appColors.paper,
+                              selectedColor: context.appColors.panel,
+                              surfaceTintColor: Colors.transparent,
+                              labelStyle: TextStyle(
+                                color: context.appColors.ink,
+                              ),
+                              side: BorderSide(
+                                color: context.appColors.line.withValues(
+                                  alpha: 0.3,
+                                ),
+                              ),
                               label: Text(
                                 '${size.label} ${(size.scale * 100).round()}%',
                               ),
@@ -4957,9 +4968,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                 horizontal: 12,
                               ),
                               decoration: BoxDecoration(
-                                color: context.appColors.paper.withValues(
-                                  alpha: 1,
-                                ),
+                                color: context.appColors.paper,
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
                                   color: context.appColors.line.withValues(

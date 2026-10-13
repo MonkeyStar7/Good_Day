@@ -36,6 +36,7 @@ mixin ReliableEditor<T extends StatefulWidget>
       _revision != _savedRevision || _pendingSave != null;
   void markPendingEdit() => _revision++;
   Future<bool> persistEdits();
+  Future<void> onEditsFlushed() async {}
 
   @override
   void didChangeDependencies() {
@@ -48,6 +49,7 @@ mixin ReliableEditor<T extends StatefulWidget>
   }
 
   Future<bool> flushPendingEdits() {
+    if (!mounted) return Future.value(true);
     if (_pendingSave != null) return _pendingSave!;
     if (!hasPendingEdits) return Future.value(true);
     final result = _flush();
@@ -56,11 +58,12 @@ mixin ReliableEditor<T extends StatefulWidget>
   }
 
   Future<bool> _flush() async {
-    while (_revision != _savedRevision) {
+    while (mounted && _revision != _savedRevision) {
       final revision = _revision;
       if (!await persistEdits()) return false;
       _savedRevision = revision;
     }
+    if (mounted) await onEditsFlushed();
     return true;
   }
 

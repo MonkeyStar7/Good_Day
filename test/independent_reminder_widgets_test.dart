@@ -7,6 +7,7 @@ import 'package:good_day/models/reminder_item.dart';
 import 'package:good_day/reminder_pages.dart';
 import 'package:good_day/app_update.dart';
 import 'package:good_day/app_update_panel.dart';
+import 'package:good_day/app_colors.dart';
 
 void main() {
   late Directory vault;
@@ -23,7 +24,8 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  Widget editor() => MaterialApp(
+  Widget editor({double transparency = 0}) => MaterialApp(
+    theme: ThemeData(extensions: [AppGlassStyle(transparency)]),
     home: Scaffold(
       body: SingleChildScrollView(
         child: ReminderEditor(
@@ -119,4 +121,112 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     controller.dispose();
   });
+
+  testWidgets(
+    'expanded task marker is passive and inline cards follow transparency',
+    (tester) async {
+      for (final opacity in [0.0, 0.55, 0.95]) {
+        await tester.pumpWidget(editor(transparency: opacity));
+        await tester.pumpAndSettle();
+        final marker = find.byKey(const Key('reminder-state-indicator'));
+        expect(tester.widget<Icon>(marker).icon, Icons.arrow_drop_down);
+        expect(
+          find.ancestor(of: marker, matching: find.byType(IconButton)),
+          findsNothing,
+        );
+        await tester.tap(marker, warnIfMissed: false);
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('add-reminder-subtask')), findsOneWidget);
+        for (final key in ['todo-repeat-card', 'reminder-settings-card']) {
+          final card = tester.widget<Container>(
+            find
+                .descendant(
+                  of: find.byKey(Key(key)),
+                  matching: find.byType(Container),
+                )
+                .first,
+          );
+          expect(
+            (card.decoration as BoxDecoration).color!.a,
+            closeTo(1 - opacity, 0.01),
+          );
+        }
+      }
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'late selection changes do not repeat saving a disposed reminder editor',
+    (tester) async {
+      await tester.runAsync(() async {
+        final key = GlobalKey<ReminderEditorState>();
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ReminderEditor(
+                key: key,
+                repository: store,
+                initialDate: date,
+                onClosed: () {},
+                onSaved: () async {
+                  await tester.pumpWidget(const SizedBox());
+                },
+              ),
+            ),
+          ),
+        );
+        await tester.enterText(
+          find.byKey(const Key('reminder-title')),
+          '保存后退出',
+        );
+        final controller = tester
+            .widget<TextField>(find.byKey(const Key('reminder-title')))
+            .controller!;
+        final saving = key.currentState!.flushPendingEdits();
+        controller.selection = const TextSelection.collapsed(offset: 1);
+        expect(await saving, isTrue);
+        expect((await store.loadReminders()).single.title, '保存后退出');
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  testWidgets(
+    'typing during reminder save persists the newest text once before closing',
+    (tester) async {
+      await tester.runAsync(() async {
+        final key = GlobalKey<ReminderEditorState>();
+        var closed = 0;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ReminderEditor(
+                key: key,
+                repository: store,
+                initialDate: date,
+                onClosed: () {},
+                onSaved: () async {
+                  closed++;
+                  await tester.pumpWidget(const SizedBox());
+                },
+              ),
+            ),
+          ),
+        );
+        await tester.enterText(find.byKey(const Key('reminder-title')), '修改前');
+        final controller = tester
+            .widget<TextField>(find.byKey(const Key('reminder-title')))
+            .controller!;
+        final saving = key.currentState!.flushPendingEdits();
+        controller.text = '修改后的最新文字';
+        expect(await saving, isTrue);
+        final records = await store.loadReminders();
+        expect(records, hasLength(1));
+        expect(records.single.title, '修改后的最新文字');
+        expect(closed, 1);
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
 }
