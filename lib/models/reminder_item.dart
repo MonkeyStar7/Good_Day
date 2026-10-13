@@ -245,10 +245,10 @@ class ReminderItem {
       : 2;
   String? phaseDue(DateTime now) {
     if (!enabled || isCompleted || deletedAt != null) return null;
-    // Additional alerts belong to this occurrence, never to yesterday's task.
     final end = DateTime(dueAt.year, dueAt.month, dueAt.day + 1);
     if (calendarRepeat && !now.isBefore(end)) return null;
-    if (pendingPhase == 'again' && !now.isBefore(end)) return null;
+    // Read older files safely, but never deliver the removed additional alerts.
+    if (pendingPhase == 'again') return null;
     if (pendingPhase == 'early' && !dueHandled && !now.isBefore(dueAt)) {
       return 'due';
     }
@@ -258,12 +258,6 @@ class ReminderItem {
           : null;
     }
     if (!dueHandled && !now.isBefore(dueAt)) return 'due';
-    if (repeatReminderMinutes != null &&
-        nextRepeatAt != null &&
-        !now.isBefore(nextRepeatAt!) &&
-        now.isBefore(end)) {
-      return 'again';
-    }
     if (early != null &&
         !earlyHandled &&
         !now.isBefore(early!.before(dueAt)) &&

@@ -1,6 +1,9 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:good_day/data/vault_repository.dart';
 import 'package:good_day/main.dart';
@@ -25,6 +28,7 @@ void main() {
           ..usesReminderWorkflow = true;
         await repository.initialize();
         final settings = AppSettingsController.inMemory();
+        final boundary = GlobalKey();
         Future<void> settle() async {
           for (var i = 0; i < 20; i++) {
             await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -50,10 +54,13 @@ void main() {
             enabled: false,
           );
           await tester.pumpWidget(
-            GoodDayApp(
-              repository: repository,
-              settingsController: settings,
-              clock: () => now,
+            RepaintBoundary(
+              key: boundary,
+              child: GoodDayApp(
+                repository: repository,
+                settingsController: settings,
+                clock: () => now,
+              ),
             ),
           );
           await settle();
@@ -73,6 +80,32 @@ void main() {
           final plainCircle = tester.getCenter(
             find.byKey(Key('reminder-complete-${plain.id}')),
           );
+          // Hovering the circular checkbox must not tint the whole task row.
+          Future<List<int>> sample(Offset point) async {
+            final image =
+                await (boundary.currentContext!.findRenderObject()
+                        as RenderRepaintBoundary)
+                    .toImage();
+            final bytes = (await image.toByteData(
+              format: ui.ImageByteFormat.rawRgba,
+            ))!.buffer.asUint8List();
+            final offset =
+                (point.dy.floor() * image.width + point.dx.floor()) * 4;
+            final pixel = bytes.sublist(offset, offset + 4);
+            image.dispose();
+            return pixel;
+          }
+
+          final probe = Offset(plainRow.right - 58, plainCircle.dy);
+          final before = await sample(probe);
+          final mouse = await tester.createGesture(
+            kind: PointerDeviceKind.mouse,
+          );
+          await mouse.addPointer(location: Offset.zero);
+          await mouse.moveTo(plainCircle);
+          await tester.pumpAndSettle();
+          expect(await sample(probe), before);
+          await mouse.removePointer();
           expect(
             plainCircle.dy - plainRow.top,
             closeTo(plainRow.bottom - plainCircle.dy, 0.1),

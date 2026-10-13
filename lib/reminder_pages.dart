@@ -258,7 +258,7 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
                     Padding(
                       padding: const EdgeInsets.only(left: 37, top: 4),
                       child: Text(
-                        '${isSameDay(item.dueAt, widget.date) ? '' : '${item.dueAt.month}月${item.dueAt.day}日 · '}${reminderTime(item.dueAt)}${item.repeatReminderMinutes == null ? '' : ' · 每 ${item.repeatReminderMinutes} 分钟再次提醒'}${item.early == null ? '' : ' · ${item.early!.label}'}',
+                        '${isSameDay(item.dueAt, widget.date) ? '' : '${item.dueAt.month}月${item.dueAt.day}日 · '}${reminderTime(item.dueAt)}${item.early == null ? '' : ' · ${item.early!.label}'}',
                         style: TextStyle(
                           fontSize: 11,
                           color: overdue
@@ -680,8 +680,6 @@ class ReminderEditorState extends State<ReminderEditor>
   int _subtaskSequence = 0;
   final _interval = TextEditingController(text: '1');
   final _leadAmount = TextEditingController(text: '5');
-  final _againAmount = TextEditingController(text: '10');
-  bool _again = false;
   @override
   void initState() {
     super.initState();
@@ -691,8 +689,6 @@ class ReminderEditorState extends State<ReminderEditor>
     _rule = widget.item?.rule ?? const ReminderRule(RepeatUnit.none);
     _early = widget.item?.early;
     _enabled = widget.item?.enabled ?? false;
-    _again = widget.item?.repeatReminderMinutes != null;
-    _againAmount.text = '${widget.item?.repeatReminderMinutes ?? 10}';
     _expanded = widget.initiallyExpanded;
     _subtasks = [...?widget.item?.subtasks];
     _interval.text = '${_rule.interval}';
@@ -707,7 +703,6 @@ class ReminderEditorState extends State<ReminderEditor>
     _notes.addListener(markPendingEdit);
     _interval.addListener(markPendingEdit);
     _leadAmount.addListener(markPendingEdit);
-    _againAmount.addListener(markPendingEdit);
     // Closing to the tray must close even an untouched editor, otherwise it
     // would keep background reminder delivery suspended indefinitely.
     markPendingEdit();
@@ -719,14 +714,12 @@ class ReminderEditorState extends State<ReminderEditor>
     _notes.dispose();
     _interval.dispose();
     _leadAmount.dispose();
-    _againAmount.dispose();
     super.dispose();
   }
 
   void _change(VoidCallback change) {
     markPendingEdit();
     setState(change);
-    _optionsSetState?.call(() {});
   }
 
   Future<void> _save() async {
@@ -736,8 +729,6 @@ class ReminderEditorState extends State<ReminderEditor>
 
   @override
   Future<bool> persistEdits() async {
-    // Unconfirmed dialog settings must not be flushed by native window closing.
-    if (_optionsOpen) return false;
     if (widget.item == null &&
         _title.text.trim().isEmpty &&
         _notes.text.trim().isEmpty &&
@@ -747,11 +738,6 @@ class ReminderEditorState extends State<ReminderEditor>
     }
     final repeatInterval = int.tryParse(_interval.text);
     final leadAmount = int.tryParse(_leadAmount.text);
-    final again = int.tryParse(_againAmount.text);
-    if (_again && (again == null || again < 1 || again > 720)) {
-      setState(() => _error = '再次提醒间隔请输入 1～720 分钟');
-      return false;
-    }
     if (_customRepeat &&
         (repeatInterval == null ||
             repeatInterval < 1 ||
@@ -787,7 +773,7 @@ class ReminderEditorState extends State<ReminderEditor>
         dueAt: _due,
         rule: rule,
         calendarRepeat: rule.unit.index >= RepeatUnit.day.index,
-        repeatReminderMinutes: _again ? int.tryParse(_againAmount.text) : null,
+        repeatReminderMinutes: null,
         early: early,
         goalId: widget.item?.goalId,
         enabled: _enabled,
@@ -812,93 +798,29 @@ class ReminderEditorState extends State<ReminderEditor>
     }
   }
 
-  StateSetter? _optionsSetState;
-  bool _optionsOpen = false;
-  Future<void> _openReminderOptions() async {
-    _optionsOpen = true;
-    final oldDue = _due, oldEarly = _early;
-    final oldAgain = _again, oldAgainAmount = _againAmount.text;
-    final oldDetailsChanged = _detailsChanged;
-    final oldLead = _customLead, oldShowTime = _showTime;
-    final oldAmount = _leadAmount.text;
-    _error = null;
-    final accepted = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, update) {
-          _optionsSetState = update;
-          return AlertDialog(
-            key: const Key('reminder-options-dialog'),
-            title: const Text(
-              '提醒设置',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-            ),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            contentPadding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            content: SizedBox(
-              width: 300,
-              child: SingleChildScrollView(child: _reminderControls(context)),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('取消'),
-              ),
-              FilledButton(
-                key: const Key('apply-reminder-options'),
-                onPressed: () {
-                  final amount = int.tryParse(_leadAmount.text);
-                  final again = int.tryParse(_againAmount.text);
-                  if (_again && (again == null || again < 1 || again > 720)) {
-                    update(() => _error = '再次提醒间隔请输入 1～720 分钟');
-                    return;
-                  }
-                  if (_customLead &&
-                      (amount == null || amount < 1 || amount > 200)) {
-                    update(() => _error = '提前提醒请输入 1～200');
-                    return;
-                  }
-                  if (_customLead) {
-                    _early = EarlyReminder(
-                      amount!,
-                      _early?.unit ?? LeadUnit.minute,
-                    );
-                  }
-                  Navigator.pop(dialogContext, true);
-                },
-                child: const Text('完成'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-    _optionsSetState = null;
-    _optionsOpen = false;
-    if (!mounted) return;
-    if (accepted == true) {
-      _detail(() {
-        _enabled = true;
-        _error = null;
-      });
-    } else {
-      setState(() {
-        _due = oldDue;
-        _again = oldAgain;
-        _againAmount.text = oldAgainAmount;
-        _early = oldEarly;
-
-        _customLead = oldLead;
-        _showTime = oldShowTime;
-        _detailsChanged = oldDetailsChanged;
-
-        _leadAmount.text = oldAmount;
-        _error = null;
-      });
-    }
-  }
+  Widget _inlineReminderControls(BuildContext context) => _ReminderSettingCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SwitchListTile(
+          key: const Key('reminder-enabled'),
+          contentPadding: EdgeInsets.zero,
+          title: const Text('设置提醒', style: TextStyle(fontSize: 13)),
+          value: _enabled,
+          onChanged: _busy
+              ? null
+              : (value) => _detail(() {
+                  _enabled = value;
+                  _error = null;
+                }),
+        ),
+        if (_enabled) ...[
+          const SizedBox(height: 8),
+          _reminderControls(context),
+        ],
+      ],
+    ),
+  );
 
   Widget _reminderNumber(
     String name,
@@ -1067,192 +989,156 @@ class ReminderEditorState extends State<ReminderEditor>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _ReminderSettingCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                '日期与时间',
-                style: TextStyle(fontSize: 13, color: colors.muted),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: Tooltip(
-                      message: reminderDate(_due),
-                      child: TextButton.icon(
-                        key: const Key('reminder-date'),
-                        style: dateStyle,
-                        onPressed: _busy
-                            ? null
-                            : () async {
-                                final date = await showDatePicker(
-                                  context: context,
-                                  builder: (context, child) => Padding(
-                                    padding: const EdgeInsets.only(left: 56),
-                                    child: child,
-                                  ),
-                                  initialDate: _due,
-                                  firstDate: DateTime(
-                                    _due.year < 1970 ? _due.year : 1970,
-                                  ),
-                                  lastDate: DateTime(
-                                    (_due.year > 2126 ? _due.year : 2126) + 1,
-                                  ),
-                                );
-                                if (date != null) {
-                                  _detail(
-                                    () => _due = DateTime(
-                                      date.year,
-                                      date.month,
-                                      date.day,
-                                      _due.hour,
-                                      _due.minute,
-                                    ),
-                                  );
-                                }
-                              },
-                        icon: const Icon(
-                          Icons.calendar_today_outlined,
-                          size: 14,
-                        ),
-                        label: Text(
-                          '${_due.month}月${_due.day}日',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    flex: 2,
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('日期与时间', style: TextStyle(fontSize: 13, color: colors.muted)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: Tooltip(
+                    message: reminderDate(_due),
                     child: TextButton.icon(
-                      key: const Key('reminder-time'),
+                      key: const Key('reminder-date'),
                       style: dateStyle,
                       onPressed: _busy
                           ? null
-                          : () => _change(() => _showTime = !_showTime),
-                      icon: const Icon(Icons.schedule, size: 14),
-                      label: Text(reminderTime(_due), maxLines: 1),
+                          : () async {
+                              final date = await showDatePicker(
+                                context: context,
+                                builder: (context, child) => Padding(
+                                  padding: const EdgeInsets.only(left: 56),
+                                  child: child,
+                                ),
+                                initialDate: _due,
+                                firstDate: DateTime(
+                                  _due.year < 1970 ? _due.year : 1970,
+                                ),
+                                lastDate: DateTime(
+                                  (_due.year > 2126 ? _due.year : 2126) + 1,
+                                ),
+                              );
+                              if (date != null) {
+                                _detail(
+                                  () => _due = DateTime(
+                                    date.year,
+                                    date.month,
+                                    date.day,
+                                    _due.hour,
+                                    _due.minute,
+                                  ),
+                                );
+                              }
+                            },
+                      icon: const Icon(Icons.calendar_today_outlined, size: 14),
+                      label: Text(
+                        '${_due.month}月${_due.day}日',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
-                ],
-              ),
-              if (_showTime) ...[
-                const SizedBox(height: 8),
-                ReminderClockWheels(
-                  value: _due,
-                  enabled: !_busy,
-                  onChanged: (date) => _detail(() => _due = date),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  flex: 2,
+                  child: TextButton.icon(
+                    key: const Key('reminder-time'),
+                    style: dateStyle,
+                    onPressed: _busy
+                        ? null
+                        : () => _change(() => _showTime = !_showTime),
+                    icon: const Icon(Icons.schedule, size: 14),
+                    label: Text(reminderTime(_due), maxLines: 1),
+                  ),
                 ),
               ],
+            ),
+            if (_showTime) ...[
+              const SizedBox(height: 8),
+              ReminderClockWheels(
+                value: _due,
+                enabled: !_busy,
+                onChanged: (date) => _detail(() => _due = date),
+              ),
             ],
-          ),
+          ],
         ),
         const SizedBox(height: 12),
-        _ReminderSettingCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SwitchListTile(
-                key: const Key('reminder-again-enabled'),
-                contentPadding: EdgeInsets.zero,
-                title: const Text('未完成时再次提醒', style: TextStyle(fontSize: 13)),
-                value: _again,
-                onChanged: (value) => _detail(() => _again = value),
-              ),
-              if (_again)
-                _ReminderIntervalRow(
-                  prefix: '每',
-                  suffix: '分钟',
-                  number: _reminderNumber(
-                    'reminder-again-minutes',
-                    _againAmount,
-                    '再次提醒间隔',
-                  ),
-                  unit: const Text('未完成则提醒', style: TextStyle(fontSize: 12)),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Text(
+                  '提前提醒',
+                  style: TextStyle(fontSize: 13, color: colors.muted),
                 ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        _ReminderSettingCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  Text(
-                    '提前提醒',
-                    style: TextStyle(fontSize: 13, color: colors.muted),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _ReminderChoice<String>(
+                    key: const Key('early-reminder'),
+                    value: _customLead ? '自定义' : leadPreset ?? '自定义',
+                    labels: {
+                      for (final label in [
+                        ...EarlyReminder.presets.keys,
+                        '自定义',
+                      ])
+                        label: label,
+                    },
+                    onChanged: _busy
+                        ? null
+                        : (value) => _detail(() {
+                            _customLead = value == '自定义';
+                            _error = null;
+                            if (!_customLead) {
+                              _early = EarlyReminder.presets[value];
+                            }
+                            if (_early != null) {
+                              _leadAmount.text = '${_early!.amount}';
+                            }
+                          }),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _ReminderChoice<String>(
-                      key: const Key('early-reminder'),
-                      value: _customLead ? '自定义' : leadPreset ?? '自定义',
-                      labels: {
-                        for (final label in [
-                          ...EarlyReminder.presets.keys,
-                          '自定义',
-                        ])
-                          label: label,
-                      },
-                      onChanged: _busy
-                          ? null
-                          : (value) => _detail(() {
-                              _customLead = value == '自定义';
-                              _error = null;
-                              if (!_customLead) {
-                                _early = EarlyReminder.presets[value];
-                              }
-                              if (_early != null) {
-                                _leadAmount.text = '${_early!.amount}';
-                              }
-                            }),
-                    ),
-                  ),
-                ],
-              ),
-              if (_customLead) ...[
-                const SizedBox(height: 12),
-                _ReminderIntervalRow(
-                  prefix: '提前',
-                  suffix: '提醒',
-                  number: _reminderNumber(
-                    'custom-lead-amount',
-                    _leadAmount,
-                    '提前时间',
-                  ),
-                  unit: SizedBox(
-                    width: 68,
-                    child: _ReminderChoice<LeadUnit>(
-                      key: const Key('custom-lead-unit'),
-                      value: _early?.unit ?? LeadUnit.minute,
-                      labels: const {
-                        LeadUnit.minute: '分钟',
-                        LeadUnit.hour: '小时',
-                        LeadUnit.day: '天',
-                        LeadUnit.week: '周',
-                        LeadUnit.month: '个月',
-                      },
-                      onChanged: _busy
-                          ? null
-                          : (unit) => _detail(
-                              () => _early = EarlyReminder(
-                                int.tryParse(_leadAmount.text) ?? 5,
-                                unit,
-                              ),
+                ),
+              ],
+            ),
+            if (_customLead) ...[
+              const SizedBox(height: 12),
+              _ReminderIntervalRow(
+                prefix: '提前',
+                suffix: '提醒',
+                number: _reminderNumber(
+                  'custom-lead-amount',
+                  _leadAmount,
+                  '提前时间',
+                ),
+                unit: SizedBox(
+                  width: 68,
+                  child: _ReminderChoice<LeadUnit>(
+                    key: const Key('custom-lead-unit'),
+                    value: _early?.unit ?? LeadUnit.minute,
+                    labels: const {
+                      LeadUnit.minute: '分钟',
+                      LeadUnit.hour: '小时',
+                      LeadUnit.day: '天',
+                      LeadUnit.week: '周',
+                      LeadUnit.month: '个月',
+                    },
+                    onChanged: _busy
+                        ? null
+                        : (unit) => _detail(
+                            () => _early = EarlyReminder(
+                              int.tryParse(_leadAmount.text) ?? 5,
+                              unit,
                             ),
-                    ),
+                          ),
                   ),
                 ),
-              ],
+              ),
             ],
-          ),
+          ],
         ),
         if (_error != null)
           Padding(
@@ -1445,39 +1331,7 @@ class ReminderEditorState extends State<ReminderEditor>
                   ],
                   _todoRepeatControls(context),
                   const SizedBox(height: 8),
-                  SwitchListTile(
-                    key: const Key('reminder-enabled'),
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('设置提醒', style: TextStyle(fontSize: 13)),
-                    value: _enabled,
-                    onChanged: _busy
-                        ? null
-                        : (value) async {
-                            if (!value) {
-                              _detail(() => _enabled = false);
-                              return;
-                            }
-                            await _openReminderOptions();
-                          },
-                  ),
-                  if (_enabled)
-                    TextButton.icon(
-                      key: const Key('reminder-summary'),
-                      onPressed: _busy ? null : _openReminderOptions,
-                      style: TextButton.styleFrom(
-                        alignment: Alignment.centerLeft,
-                      ),
-                      icon: const Icon(Icons.schedule, size: 16),
-                      label: Text(
-                        '${reminderDate(_due)} ${reminderTime(_due)}\n${_early?.label ?? '不提前提醒'}${_again ? ' · 每 ${_againAmount.text} 分钟再次提醒' : ''}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _due.isBefore(DateTime.now())
-                              ? const Color(0xFFA65345)
-                              : context.appColors.muted,
-                        ),
-                      ),
-                    ),
+                  _inlineReminderControls(context),
                   if (_error != null)
                     Text(
                       _error!,

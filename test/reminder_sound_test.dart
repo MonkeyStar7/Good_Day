@@ -77,6 +77,14 @@ void main() {
       await tester.pumpAndSettle();
       final selector = find.byKey(const Key('reminder-sound-choice'));
       await tester.scrollUntilVisible(selector, 150);
+      final control = tester.getRect(
+        find.byKey(const Key('reminder-sound-control')),
+      );
+      final label = tester.getRect(
+        find.descendant(of: selector, matching: find.text('轻巧木音')),
+      );
+      expect(label.left - control.left, greaterThanOrEqualTo(12));
+      expect(label.right, lessThan(control.right));
       await tester.tap(find.byKey(const Key('preview-reminder-sound')));
       await tester.pumpAndSettle();
       expect(calls.single.method, 'previewSound');

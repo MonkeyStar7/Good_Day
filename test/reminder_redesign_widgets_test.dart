@@ -26,35 +26,18 @@ Future<void> settle(WidgetTester tester, VaultRepository repository) async {
 Future<void> openReminderOptions(WidgetTester tester) async {
   await tester.ensureVisible(find.byKey(const Key('reminder-enabled')));
   await tester.pumpAndSettle();
-  await tester.tap(find.byKey(const Key('reminder-enabled')));
+  if (!tester
+      .widget<SwitchListTile>(find.byKey(const Key('reminder-enabled')))
+      .value) {
+    await tester.tap(find.byKey(const Key('reminder-enabled')));
+  }
   await tester.pumpAndSettle();
-  expect(find.byKey(const Key('reminder-options-dialog')), findsOneWidget);
-  final dialogContext = tester.element(
-    find.byKey(const Key('reminder-options-dialog')),
-  );
-  expect(Theme.of(dialogContext).dialogTheme.backgroundColor!.a, 1);
-  final card = find
-      .descendant(
-        of: find.byKey(const Key('reminder-options-dialog')),
-        matching: find.byWidgetPredicate(
-          (widget) => widget is Material && widget.type == MaterialType.card,
-        ),
-      )
-      .first;
-  expect(tester.getRect(card).left, greaterThanOrEqualTo(56));
-  final barriers = tester.widgetList<ModalBarrier>(find.byType(ModalBarrier));
-  expect(barriers.any((barrier) => (barrier.color?.a ?? 0) > 0.12), isFalse);
-  expect(
-    find.ancestor(
-      of: find.byKey(const Key('reminder-options-dialog')),
-      matching: find.byType(BackdropFilter),
-    ),
-    findsNothing,
-  );
+  expect(find.byKey(const Key('reminder-options-dialog')), findsNothing);
+  expect(find.byKey(const Key('reminder-date')), findsOneWidget);
+  expect(find.text('未完成时再次提醒'), findsNothing);
 }
 
 Future<void> applyReminderOptions(WidgetTester tester) async {
-  await tester.tap(find.byKey(const Key('apply-reminder-options')));
   await tester.pumpAndSettle();
 }
 
@@ -372,7 +355,8 @@ void main() {
         await openReminderOptions(tester);
         expect(find.byTooltip('2026年11月1日'), findsOneWidget);
         expect(find.text('09:00'), findsOneWidget);
-        await tester.tap(find.widgetWithText(TextButton, '取消').last);
+        await tester.ensureVisible(find.byKey(const Key('cancel-reminder')));
+        await tester.tap(find.byKey(const Key('cancel-reminder')));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('nav-history')));
         await settle(tester, repository);
@@ -473,17 +457,13 @@ void main() {
         )!;
         expect(
           await scope.flush(),
-          isFalse,
-          reason: 'Unconfirmed reminder options must stay in the dialog',
+          isTrue,
+          reason: 'Inline reminder edits save with the task',
         );
-        await tester.tap(find.widgetWithText(TextButton, '取消').last);
+        await settle(tester, repository);
+        expect((await repository.loadReminders()).single.enabled, isTrue);
+        await tester.tap(find.byKey(Key('reminder-row-${item.id}')));
         await tester.pumpAndSettle();
-        expect(
-          tester
-              .widget<SwitchListTile>(find.byKey(const Key('reminder-enabled')))
-              .value,
-          isFalse,
-        );
         await tester.tap(find.byKey(const Key('delete-reminder')));
         await settle(tester, repository);
         expect(await repository.loadReminders(), isEmpty);

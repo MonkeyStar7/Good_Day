@@ -71,36 +71,24 @@ void main() {
   );
 
   testWidgets(
-    'reminder dialog holds only alarm settings and minute-based additional reminders',
+    'reminder settings expand inline and retain date/time without additional reminders',
     (tester) async {
       await tester.runAsync(() async {
         await tester.pumpWidget(editor());
         await tester.enterText(find.byKey(const Key('reminder-title')), '喝水');
         await tester.tap(find.byKey(const Key('reminder-enabled')));
         await tester.pumpAndSettle();
-        final dialog = find.byKey(const Key('reminder-options-dialog'));
-        expect(
-          find.descendant(
-            of: dialog,
-            matching: find.byKey(const Key('reminder-repeat')),
-          ),
-          findsNothing,
-        );
-        await tester.tap(find.byKey(const Key('reminder-again-enabled')));
-        await tester.pumpAndSettle();
-        await tester.enterText(
-          find.byKey(const Key('reminder-again-minutes')),
-          '5',
-        );
-        await tester.tap(find.byKey(const Key('apply-reminder-options')));
-        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('reminder-options-dialog')), findsNothing);
+        expect(find.byKey(const Key('reminder-date')), findsOneWidget);
+        expect(find.byKey(const Key('early-reminder')), findsOneWidget);
+        expect(find.byKey(const Key('reminder-again-enabled')), findsNothing);
         await tester.ensureVisible(find.byKey(const Key('save-reminder')));
         await tester.tap(find.byKey(const Key('save-reminder')));
         await settle(tester);
         final items = await store.loadReminders();
         expect(items.single.enabled, isTrue);
         expect(items.single.rule.unit, RepeatUnit.none);
-        expect(items.single.repeatReminderMinutes, 5);
+        expect(items.single.repeatReminderMinutes, isNull);
         await tester.pumpWidget(const SizedBox());
       });
     },

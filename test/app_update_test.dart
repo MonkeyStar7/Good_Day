@@ -117,7 +117,7 @@ void main() {
   test('check and download verify exact size, sha256, progress, and safe redirects', () async {
     final client = Client((uri) {
       if (uri == GithubUpdateClient.latest) {
-        return Response(utf8.encode(jsonEncode(metadata('1.4.14', bytes))));
+        return Response(utf8.encode(jsonEncode(metadata('99.0.0', bytes))));
       }
       if (uri.host == 'github.com') {
         return Response(
@@ -172,7 +172,7 @@ void main() {
     final client = GithubUpdateClient(
       client: Client(
         (uri) => uri == GithubUpdateClient.latest
-            ? Response(utf8.encode(jsonEncode(metadata('1.4.14', bytes))))
+            ? Response(utf8.encode(jsonEncode(metadata('99.0.0', bytes))))
             : Response(bytes),
       ),
     );

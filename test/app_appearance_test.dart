@@ -149,12 +149,8 @@ void main() {
             );
             await tester.tap(find.byKey(const Key('reminder-enabled')));
             await settle();
-            expect(
-              find.byKey(const Key('reminder-options-dialog')),
-              findsOneWidget,
-            );
+            expect(find.byKey(const Key('reminder-date')), findsOneWidget);
             expect(tester.takeException(), isNull);
-            await tester.tap(find.byKey(const Key('apply-reminder-options')));
             await settle();
             if (const bool.fromEnvironment('CAPTURE_APPEARANCE')) {
               final image =

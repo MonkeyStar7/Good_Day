@@ -108,7 +108,7 @@ void main() {
     expect(await store.loadReminders(through: DateTime(2026, 10, 20)), isEmpty);
   });
 
-  test('again reminders stop on completion or midnight and a daily task gets its own alarm', () async {
+  test('removed additional reminders remain disabled while daily tasks retain independent alarms', () async {
     final first = await daily(enabled: true, again: 5);
     now = first.dueAt;
     expect((await store.prepareReminder(first.id, now))!.pendingPhase, 'due');
@@ -116,9 +116,16 @@ void main() {
     var saved = (await store.loadReminders()).first;
     expect(saved.phaseDue(now.add(const Duration(minutes: 4))), isNull);
     now = now.add(const Duration(minutes: 5));
-    expect(saved.phaseDue(now), 'again');
-    await store.prepareReminder(first.id, now);
-    await store.resolveReminder(first.id, 'again');
+    expect(saved.phaseDue(now), isNull);
+    expect(
+      saved
+          .patch({
+            'pendingPhase': 'again',
+            'nextRepeatAt': now.toIso8601String(),
+          })
+          .phaseDue(now),
+      isNull,
+    );
     await store.completeReminder(saved, true);
     saved = (await store.loadReminders()).first;
     expect(saved.phaseDue(now.add(const Duration(minutes: 5))), isNull);

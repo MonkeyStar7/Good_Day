@@ -91,7 +91,6 @@ extension ReminderRepository on VaultRepository {
         seriesRoot: template.seriesRoot ?? template.id,
         anchor: template.anchor ?? template.dueAt,
         calendarRepeat: true,
-        repeatReminderMinutes: template.repeatReminderMinutes,
         // Do not announce every missed day after an offline gap.
         dueHandled: !isSameDay(date, _clock()) && date.isBefore(_clock()),
         earlyHandled: template.early?.before(date).isBefore(_clock()) ?? false,
@@ -557,14 +556,7 @@ extension ReminderRepository on VaultRepository {
                   'dueHandled': true,
                 'pendingPhase': null,
                 'snoozedUntil': null,
-                'nextRepeatAt':
-                    phase == 'early' || current.repeatReminderMinutes == null
-                    ? current.nextRepeatAt?.toIso8601String()
-                    : _clock()
-                          .add(
-                            Duration(minutes: current.repeatReminderMinutes!),
-                          )
-                          .toIso8601String(),
+                'nextRepeatAt': null,
               }
             : {'snoozedUntil': snoozeUntil.toIso8601String()},
       ),

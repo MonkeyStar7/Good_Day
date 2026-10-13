@@ -299,6 +299,10 @@ class GoodDayApp extends StatelessWidget {
           title: 'Good Day',
           theme: ThemeData(
             useMaterial3: true,
+            hoverColor: Colors.transparent,
+            highlightColor: Colors.transparent,
+            focusColor: Colors.transparent,
+            splashFactory: NoSplash.splashFactory,
             extensions: [AppGlassStyle(settings.glassTransparency)],
             scaffoldBackgroundColor: Colors.transparent,
             canvasColor: colors.paper.withValues(alpha: 1),
@@ -4947,40 +4951,57 @@ class _SettingsPageState extends State<SettingsPage> {
                       Row(
                         children: [
                           Expanded(
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<ReminderSound>(
-                                key: const Key('reminder-sound-choice'),
-                                value: settings.reminderSound,
-                                isExpanded: true,
-                                menuMaxHeight: 240,
+                            child: Container(
+                              key: const Key('reminder-sound-control'),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
+                              decoration: BoxDecoration(
+                                color: context.appColors.paper.withValues(
+                                  alpha: 1,
+                                ),
                                 borderRadius: BorderRadius.circular(12),
-                                items: [
-                                  for (final sound in ReminderSound.values)
-                                    DropdownMenuItem(
-                                      value: sound,
-                                      child: Text(
-                                        sound.label,
-                                        style: const TextStyle(fontSize: 13),
+                                border: Border.all(
+                                  color: context.appColors.line.withValues(
+                                    alpha: 0.4,
+                                  ),
+                                ),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<ReminderSound>(
+                                  key: const Key('reminder-sound-choice'),
+                                  value: settings.reminderSound,
+                                  isExpanded: true,
+                                  menuMaxHeight: 240,
+                                  borderRadius: BorderRadius.circular(12),
+                                  items: [
+                                    for (final sound in ReminderSound.values)
+                                      DropdownMenuItem(
+                                        value: sound,
+                                        child: Text(
+                                          sound.label,
+                                          style: const TextStyle(fontSize: 13),
+                                        ),
                                       ),
-                                    ),
-                                ],
-                                onChanged: (sound) async {
-                                  if (sound == null) return;
-                                  try {
-                                    await widget.controller.setReminderSound(
-                                      sound,
-                                    );
-                                  } catch (_) {
-                                    if (context.mounted) {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                            const SnackBar(
-                                              content: Text('提醒声音未能保存，请重试'),
-                                            ),
-                                          );
+                                  ],
+                                  onChanged: (sound) async {
+                                    if (sound == null) return;
+                                    try {
+                                      await widget.controller.setReminderSound(
+                                        sound,
+                                      );
+                                    } catch (_) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                              const SnackBar(
+                                                content: Text('提醒声音未能保存，请重试'),
+                                              ),
+                                            );
+                                      }
                                     }
-                                  }
-                                },
+                                  },
+                                ),
                               ),
                             ),
                           ),
