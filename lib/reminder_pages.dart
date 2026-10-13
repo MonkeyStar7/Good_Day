@@ -103,6 +103,7 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
     DateTime date, [
     ReminderItem? item,
   ]) async {
+    if (item?.isCompleted ?? false) return;
     if (!await (_editor.currentState?.flushPendingEdits() ??
         Future.value(true))) {
       return;
@@ -166,7 +167,9 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
         else
           InkWell(
             key: Key('reminder-row-${item.id}'),
-            onTap: () => _openEditor(section, item.dueAt, item),
+            onTap: item.isCompleted
+                ? null
+                : () => _openEditor(section, item.dueAt, item),
             child: Padding(
               padding: EdgeInsets.only(
                 top: 12,
@@ -202,16 +205,33 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
                           ),
                         ),
                       ),
-                      SizedBox(
-                        width: 32,
-                        height: 32,
-                        child: Icon(
-                          Icons.arrow_right,
-                          key: Key('reminder-indicator-${item.id}'),
-                          size: 22,
-                          color: context.appColors.muted,
+                      if (item.isCompleted)
+                        IconButton(
+                          key: Key('delete-completed-${item.id}'),
+                          tooltip: '删除事项',
+                          icon: const Icon(Icons.delete_outline, size: 18),
+                          onPressed: () async {
+                            try {
+                              await widget.repository.deleteReminder(item);
+                              await _load();
+                            } catch (error) {
+                              if (mounted) {
+                                setState(() => _error = '未保存，请重试：$error');
+                              }
+                            }
+                          },
+                        )
+                      else
+                        SizedBox(
+                          width: 32,
+                          height: 32,
+                          child: Icon(
+                            Icons.arrow_right,
+                            key: Key('reminder-indicator-${item.id}'),
+                            size: 22,
+                            color: context.appColors.muted,
+                          ),
                         ),
-                      ),
                     ],
                   ),
                   if (item.notes.isNotEmpty)
@@ -273,7 +293,7 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
                         child: Checkbox(
                           materialTapTargetSize:
                               MaterialTapTargetSize.shrinkWrap,
-                          value: task.isCompleted,
+                          value: item.isCompleted || task.isCompleted,
                           onChanged: item.isCompleted
                               ? null
                               : (value) => _completeSubtask(
@@ -290,7 +310,7 @@ class _ReminderAgendaPageState extends State<ReminderAgendaPage> {
                           style: TextStyle(
                             fontSize: 12,
                             color: context.appColors.muted,
-                            decoration: task.isCompleted
+                            decoration: item.isCompleted || task.isCompleted
                                 ? TextDecoration.lineThrough
                                 : null,
                           ),

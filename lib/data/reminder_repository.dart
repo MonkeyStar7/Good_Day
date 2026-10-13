@@ -468,6 +468,14 @@ extension ReminderRepository on VaultRepository {
       await _writeReminderItem(
         current.patch({
           'completedAt': completed ? _clock().toIso8601String() : null,
+          'subtasks': [
+            for (final task in current.subtasks)
+              {
+                'id': task.id,
+                'title': task.title,
+                'completed': completed || task.isCompleted,
+              },
+          ],
           'pendingPhase': null,
           'snoozedUntil': null,
           'nextRepeatAt': null,

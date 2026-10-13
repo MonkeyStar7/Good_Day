@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:good_day/data/vault_repository.dart';
 import 'package:good_day/models/reminder_item.dart';
+import 'package:good_day/models/good_day_task.dart';
 import 'package:good_day/reminder_pages.dart';
 import 'package:good_day/app_update.dart';
 import 'package:good_day/app_update_panel.dart';
@@ -36,6 +37,72 @@ void main() {
         ),
       ),
     ),
+  );
+
+  testWidgets(
+    'completed parent checks children and stays read-only until reopened',
+    (tester) async {
+      await tester.runAsync(() async {
+        final item = await store.saveReminder(
+          title: '整体验收',
+          dueAt: date,
+          notes: '保留备注',
+          rule: const ReminderRule(RepeatUnit.none),
+          enabled: false,
+          subtasks: [GoodDaySubtask(id: 'step', title: '检查细节')],
+        );
+        await store.completeReminder(item, true);
+        final completed = (await store.loadReminders()).single;
+        expect(completed.subtasks.single.isCompleted, isTrue);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ReminderAgendaPage(
+                repository: store,
+                date: date,
+                clock: () => date,
+                scheduled: false,
+                onEditingChanged: (_) {},
+              ),
+            ),
+          ),
+        );
+        await settle(tester);
+        await tester.tap(find.text('1 项已完成 · 显示'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('整体验收'));
+        await tester.pumpAndSettle();
+        expect(find.byType(ReminderEditor), findsNothing);
+        expect(find.byKey(Key('delete-completed-${item.id}')), findsOneWidget);
+        expect(
+          tester
+              .widget<Checkbox>(
+                find.descendant(
+                  of: find.byKey(const Key('reminder-subtask-step')),
+                  matching: find.byType(Checkbox),
+                ),
+              )
+              .value,
+          isTrue,
+        );
+        await tester.tap(find.byKey(Key('reminder-complete-${item.id}')));
+        await settle(tester);
+        expect((await store.loadReminders()).single.isCompleted, isFalse);
+        await tester.tap(find.text('整体验收'));
+        await tester.pumpAndSettle();
+        expect(find.byType(ReminderEditor), findsOneWidget);
+        await tester.tap(find.byKey(const Key('cancel-reminder')));
+        await settle(tester);
+        await tester.tap(find.byKey(Key('reminder-complete-${item.id}')));
+        await settle(tester);
+        await tester.ensureVisible(
+          find.byKey(Key('delete-completed-${item.id}')),
+        );
+        await tester.tap(find.byKey(Key('delete-completed-${item.id}')));
+        await settle(tester);
+        expect(await store.loadReminders(), isEmpty);
+      });
+    },
   );
 
   testWidgets(
