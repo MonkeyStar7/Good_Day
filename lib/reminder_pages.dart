@@ -1342,7 +1342,6 @@ class ReminderEditorState extends State<ReminderEditor>
                   Row(
                     children: [
                       Expanded(
-                        flex: 2,
                         child: FilledButton(
                           key: const Key('save-reminder'),
                           onPressed: _busy
