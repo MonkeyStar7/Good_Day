@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="assets/branding/good_day_mark.png" width="80" alt="Good Day 标志">
-</p>
-
 <h1 align="center">Good Day</h1>
 
 <p align="center"><strong>简约、清爽的 Windows 待办工具。</strong><br>把今天安排好，让接下来的日子更清晰。</p>
@@ -9,7 +5,7 @@
 <p align="center">今天 · 计划 · 历史<br>毛玻璃外观 · Markdown 本地保存</p>
 
 <p align="center">
-  <img src="docs/images/today.png" width="400" alt="Good Day 今天页面：按上午、下午、今晚安排学习、项目和阅读，支持备注与子任务">
+  <a href="docs/images/good-day-desktop.png"><img src="docs/images/good-day-desktop.png" width="900" alt="Good Day 桌面实拍：简约清爽的今天页面、备注和子任务，以及与桌面背景融合的毛玻璃效果"></a>
 </p>
 
 <p align="center"><em>留白充足，层次清晰。把注意力留给要做的事情。</em></p>
@@ -34,26 +30,7 @@
 | **清晰安排一天** | 上午学习、下午工作、今晚阅读。用备注记录想法，用子任务拆开大事。 |
 | **习惯每天延续** | 设置每天、工作日或其他重复频率，每次独立记录完成情况；不开提醒也能重复。 |
 | **数据留在本机** | 待办保存在自己的 Markdown 文件夹，支持备份、恢复和迁移数据位置。 |
-| **清爽外观，自己调整** | 白色毛玻璃、多种主题色与字体，透明度和整体界面大小都可调。 |
-
-## 看看它的样子
-
-<table>
-  <tr>
-    <th align="center">计划：给接下来的日子留好位置</th>
-    <th align="center">外观：调到自己看着舒服</th>
-  </tr>
-  <tr>
-    <td align="center"><a href="docs/images/plans.png"><img src="docs/images/plans.png" width="330" alt="计划页面：明天、后天和后续日期的待办安排与每日阅读任务"></a></td>
-    <td align="center"><a href="docs/images/settings.png"><img src="docs/images/settings.png" width="330" alt="设置页面：75%、100%、150% 整体缩放，毛玻璃透明度、主题色和默认静音"></a></td>
-  </tr>
-  <tr>
-    <td>按日期安排事项，展开本月其他日期和后续月份。重复待办也会出现在对应日期。</td>
-    <td>75%／100%／150% 整体缩放；透明度 0%～95% 可调，默认 55%。</td>
-  </tr>
-</table>
-
-截图使用当前软件界面和示例数据；为保持文字清晰，以渐变背景导出。实际毛玻璃效果会随桌面背景和系统环境变化。点击功能截图可查看大图。
+| **清爽外观，自己调整** | 白色毛玻璃、多种主题色与字体；75%／100%／150% 整体缩放，透明度 0%～95% 可调，默认 55%。 |
 
 ## 三步开始
 
@@ -109,6 +86,6 @@ flutter build windows --release
 
 运行 `scripts/package-windows.ps1` 制作免安装包；安装 [Inno Setup 6](https://jrsoftware.org/isdl.php) 后，运行 `scripts/package-installer.ps1 -Compiler "安装目录\ISCC.exe"` 制作安装包。
 
-截图导出方法见 [截图说明](docs/images/README.md)。
+
 
 </details>
